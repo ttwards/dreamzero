@@ -94,6 +94,12 @@ def collate(features: List[dict], tokenizer: AutoTokenizer, num_views=3, embodim
     keys = features[0].keys()
 
     for key in keys:
+        # WebDataset preserves source metadata such as ``__key__`` and
+        # ``__url__`` across map stages. These fields are useful for tracing a
+        # bad sample, but they are not model inputs and cannot be converted to
+        # tensors by the numeric fallback below.
+        if key.startswith("__"):
+            continue
         if key == "text":
             output_values = []
             for elem in features:
@@ -515,6 +521,7 @@ class DreamTransform(InvertibleModalityTransform):
 
     def apply_single(self, data: dict) -> dict:
         transformed_data = {}
+        has_action = "action" in data
 
         # 1) Prepare video and language with vlm processing.
         images = self._prepare_video(data)
@@ -528,7 +535,7 @@ class DreamTransform(InvertibleModalityTransform):
         transformed_data["state"] = state
         transformed_data["state_mask"] = state_mask
 
-        if self.training:
+        if has_action:
             # 3) Prepare actions
             is_detection_instance = self.embodiment_tag == EmbodimentTag.GR1_UNIFIED_SEGMENTATION
             if is_detection_instance:
@@ -604,7 +611,7 @@ class DreamTransform(InvertibleModalityTransform):
             transformed_data["action"] = reshaped_lapa_actions
             transformed_data["action_mask"] = np.ones(actions_shape, dtype=bool)
 
-        if self.training:
+        if has_action:
             action_and_mask_keys = ["action", "action_mask", "lapa_action", "lapa_action_mask"]
             assert all(
                 transformed_data[key].shape == transformed_data["action"].shape
@@ -625,8 +632,6 @@ class DreamTransform(InvertibleModalityTransform):
         return collate(data_split_processed, self.tokenizer, self.num_views, self.embodiment_tag_mapping)
 
     def apply(self, data: dict) -> dict:
-        if not self.training and data["video"].ndim == 5:
-            data["video"] = data["video"][None, ...]
         is_batched, batch_size = self.check_keys_and_batch_size(data)
         if is_batched:
             return self.apply_batch(data, batch_size)
@@ -639,4 +644,3 @@ class DreamTransform(InvertibleModalityTransform):
 
     def __call__(self, data: dict) -> dict:
         return self.apply(data)
-
