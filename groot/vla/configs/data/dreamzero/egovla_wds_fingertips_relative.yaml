@@ -14,6 +14,11 @@ max_state_dim: 64
 max_action_dim: 48
 num_views: 2
 max_chunk_size: 4
+# Each camera is resized before DreamTransform places the two views on its
+# 2x2 canvas. The resulting 352x640 video encodes to 880 DiT tokens per latent
+# frame, matching frame_seqlen and the pretrained Wan 14B block layout.
+image_resolution_width: 320
+image_resolution_height: 176
 
 egovla_wds_shards:
   - /efs-exp/yeyuyao/real_world_wds_chest/real_world_with_cn_0520/train/shard-*.tar
