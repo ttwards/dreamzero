@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import glob
 import io
+import multiprocessing as mp
 from pathlib import Path
 import random
 import re
@@ -89,6 +90,57 @@ class RunningStatistics:
             "q99": np.quantile(quantiles, 0.99, axis=0).astype(np.float32),
         }
 
+    def snapshot(self) -> dict[str, np.ndarray | int]:
+        return {
+            "count": self.count,
+            "total": self.total,
+            "total_square": self.total_square,
+            "minimum": self.minimum,
+            "maximum": self.maximum,
+            "reservoir": self.reservoir[: self.reservoir_count].copy(),
+        }
+
+    @classmethod
+    def merge(
+        cls,
+        snapshots: Sequence[dict[str, np.ndarray | int]],
+        reservoir_size: int,
+        seed: int,
+    ) -> "RunningStatistics":
+        if not snapshots:
+            raise ValueError("No statistics snapshots to merge")
+        result = cls(len(np.asarray(snapshots[0]["total"])), reservoir_size, seed)
+        result.count = sum(int(snapshot["count"]) for snapshot in snapshots)
+        result.total = sum(np.asarray(snapshot["total"]) for snapshot in snapshots)
+        result.total_square = sum(
+            np.asarray(snapshot["total_square"]) for snapshot in snapshots
+        )
+        result.minimum = np.minimum.reduce(
+            [np.asarray(snapshot["minimum"]) for snapshot in snapshots]
+        )
+        result.maximum = np.maximum.reduce(
+            [np.asarray(snapshot["maximum"]) for snapshot in snapshots]
+        )
+
+        rng = np.random.default_rng(seed)
+        candidates = []
+        priorities = []
+        for snapshot in snapshots:
+            reservoir = np.asarray(snapshot["reservoir"], dtype=np.float32)
+            if len(reservoir) == 0:
+                continue
+            represented_rows = int(snapshot["count"]) / len(reservoir)
+            uniform = np.maximum(rng.random(len(reservoir)), np.finfo(np.float64).tiny)
+            priorities.append(-np.log(uniform) / represented_rows)
+            candidates.append(reservoir)
+        all_candidates = np.concatenate(candidates)
+        all_priorities = np.concatenate(priorities)
+        sample_size = min(reservoir_size, len(all_candidates))
+        selected = np.argpartition(all_priorities, sample_size - 1)[:sample_size]
+        result.reservoir[:sample_size] = all_candidates[selected]
+        result.reservoir_count = sample_size
+        return result
+
 
 def expand_shards(patterns: Sequence[str]) -> list[str]:
     shards: list[str] = []
@@ -143,6 +195,36 @@ def relative_actions(actions: np.ndarray, anchor_state: np.ndarray) -> np.ndarra
     result[:, 0:6] -= anchor_state[None, 0:6]
     result[:, 18:48] -= anchor_state[None, 18:48]
     return result
+
+
+def scan_shards(
+    worker_index: int,
+    shards: Sequence[str],
+    action_horizon: int,
+    anchor_stride: int,
+    reservoir_size: int,
+    seed: int,
+) -> tuple[dict, dict, int, int]:
+    state_stats = RunningStatistics(48, reservoir_size, seed + worker_index * 2)
+    action_stats = RunningStatistics(48, reservoir_size, seed + worker_index * 2 + 1)
+    episode_count = anchor_count = 0
+    for shard_index, shard in enumerate(shards):
+        if shard_index % 10 == 0:
+            print(
+                f"[worker {worker_index}] shard {shard_index + 1}/{len(shards)}: {shard}",
+                flush=True,
+            )
+        for episode in iter_shard_episodes(shard):
+            episode_count += 1
+            for anchor in range(
+                0, max(0, len(episode) - action_horizon), anchor_stride
+            ):
+                state = episode[anchor, :48]
+                actions = episode[anchor : anchor + action_horizon, 48:96]
+                state_stats.add(state)
+                action_stats.add(relative_actions(actions, state))
+                anchor_count += 1
+    return state_stats.snapshot(), action_stats.snapshot(), episode_count, anchor_count
 
 
 def split_statistics(values: dict[str, np.ndarray]) -> dict:
@@ -206,6 +288,7 @@ def main() -> None:
     parser.add_argument("--action-horizon", type=int, default=24)
     parser.add_argument("--anchor-stride", type=int, default=1)
     parser.add_argument("--reservoir-size", type=int, default=500_000)
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fps", type=float, default=30.0)
     parser.add_argument("--width", type=int, default=640)
@@ -224,19 +307,36 @@ def main() -> None:
     if not isinstance(shard_patterns, list) or not shard_patterns:
         raise ValueError("No training shard patterns were configured")
 
-    state_stats = RunningStatistics(48, args.reservoir_size, args.seed)
-    action_stats = RunningStatistics(48, args.reservoir_size, args.seed + 1)
-    episode_count = anchor_count = 0
-    for shard in expand_shards(shard_patterns):
-        print(f"Scanning {shard}")
-        for episode in iter_shard_episodes(shard):
-            episode_count += 1
-            for anchor in range(0, max(0, len(episode) - args.action_horizon), args.anchor_stride):
-                state = episode[anchor, :48]
-                actions = episode[anchor : anchor + args.action_horizon, 48:96]
-                state_stats.add(state)
-                action_stats.add(relative_actions(actions, state))
-                anchor_count += 1
+    shards = expand_shards(shard_patterns)
+    worker_count = min(args.workers, len(shards))
+    if worker_count < 1:
+        raise ValueError("workers must be positive")
+    shard_groups = [shards[index::worker_count] for index in range(worker_count)]
+    tasks = [
+        (
+            worker_index,
+            shard_group,
+            args.action_horizon,
+            args.anchor_stride,
+            args.reservoir_size,
+            args.seed,
+        )
+        for worker_index, shard_group in enumerate(shard_groups)
+    ]
+    if worker_count == 1:
+        results = [scan_shards(*tasks[0])]
+    else:
+        with mp.get_context("spawn").Pool(worker_count) as pool:
+            results = pool.starmap(scan_shards, tasks)
+
+    state_stats = RunningStatistics.merge(
+        [result[0] for result in results], args.reservoir_size, args.seed
+    )
+    action_stats = RunningStatistics.merge(
+        [result[1] for result in results], args.reservoir_size, args.seed + 1
+    )
+    episode_count = sum(result[2] for result in results)
+    anchor_count = sum(result[3] for result in results)
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

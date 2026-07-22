@@ -31,9 +31,9 @@ WDS_SHARDS="${WDS_SHARDS:-}"
 VAL_WDS_SHARDS="${VAL_WDS_SHARDS:-}"
 WDS_METADATA="${WDS_METADATA:-$PROJECT_DIR/artifacts/egovla_wds_metadata_full.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egovla_wds}"
-WAN_CKPT_DIR="${WAN_CKPT_DIR:?Set WAN_CKPT_DIR to Wan2.1-I2V-14B-480P}"
-TOKENIZER_DIR="${TOKENIZER_DIR:?Set TOKENIZER_DIR to the umt5-xxl tokenizer}"
-DREAMZERO_CKPT_DIR="${DREAMZERO_CKPT_DIR:?Set DREAMZERO_CKPT_DIR to DreamZero-AgiBot}"
+WAN_CKPT_DIR="${WAN_CKPT_DIR:-/efs-exp/agent-workspace/xuwenxi/checkpoints/Wan2.1-I2V-14B-480P}"
+TOKENIZER_DIR="${TOKENIZER_DIR:-/efs-exp/agent-workspace/xuwenxi/checkpoints/umt5-xxl}"
+DREAMZERO_CKPT_DIR="${DREAMZERO_CKPT_DIR:-/efs-exp/agent-workspace/xuwenxi/checkpoints/DreamZero-AgiBot}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-64}"
 MAX_STEPS="${MAX_STEPS:-5000}"
 REPORT_TO="${REPORT_TO:-wandb}"
@@ -47,6 +47,19 @@ fi
 for required_dir in "$WAN_CKPT_DIR" "$TOKENIZER_DIR" "$DREAMZERO_CKPT_DIR"; do
     if [ ! -d "$required_dir" ]; then
         echo "Missing model directory: $required_dir" >&2
+        exit 2
+    fi
+done
+required_files=(
+    "$WAN_CKPT_DIR/models_t5_umt5-xxl-enc-bf16.pth"
+    "$WAN_CKPT_DIR/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"
+    "$WAN_CKPT_DIR/Wan2.1_VAE.pth"
+    "$TOKENIZER_DIR/spiece.model"
+    "$DREAMZERO_CKPT_DIR/model.safetensors.index.json"
+)
+for required_file in "${required_files[@]}"; do
+    if [ ! -f "$required_file" ]; then
+        echo "Missing model file: $required_file" >&2
         exit 2
     fi
 done
@@ -65,6 +78,7 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-0}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export TOKENIZERS_PARALLELISM=false
+export NO_ALBUMENTATIONS_UPDATE=1
 export PYTHONUNBUFFERED=1
 export WANDB_PROJECT
 

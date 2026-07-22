@@ -14,4 +14,5 @@ exec "$PYTHON_BIN" -u "$SCRIPT_DIR/compute_egovla_wds_metadata.py" \
     --action-horizon 24 \
     --anchor-stride 1 \
     --reservoir-size 500000 \
+    --workers "${NORMALIZER_WORKERS:-8}" \
     --seed 42
