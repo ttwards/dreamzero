@@ -1,10 +1,16 @@
 import json
 import subprocess
 
-import av
 import cv2
 import numpy as np
 import torchvision
+
+try:
+    import av
+
+    PYAV_AVAILABLE = True
+except ImportError:
+    PYAV_AVAILABLE = False
 
 # Import decord with graceful fallback
 try:
@@ -395,6 +401,8 @@ def get_frames_by_timestamps(
         return frames
 
     elif video_backend == "torchvision_av":
+        if not PYAV_AVAILABLE:
+            raise ImportError("PyAV is not available. Install it with: pip install av")
         # set backend
         torchvision.set_video_backend("pyav")
 
@@ -472,6 +480,8 @@ def get_all_frames(
     elif video_backend == "ffmpeg":
         return _extract_all_frames_ffmpeg(video_path)
     elif video_backend == "pyav":
+        if not PYAV_AVAILABLE:
+            raise ImportError("PyAV is not available. Install it with: pip install av")
         container = av.open(video_path)
         stream = container.streams.video[0]
         assert stream.time_base is not None
