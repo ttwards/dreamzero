@@ -12,6 +12,9 @@ DreamZero 的原生 WDS loader 读取 frame-wise tar：一个 WebDataset sample
 
 depth 成员会被跳过。`lowdim.npy` 是 136D float32：
 
+旧 finetune/dagger shard 把胸前相机命名为 `breast_image.jpg`；loader 会将它
+映射到同一个 `video.chest`。只有两种字段都缺失时才补固定黑帧。
+
 | Slice | 含义 |
 |---|---|
 | `[0:3]` | left wrist XYZ state |

@@ -27,7 +27,8 @@ else
 fi
 PYTHON_BIN="${PYTHON_BIN:-$DEFAULT_PYTHON_BIN}"
 
-WDS_SHARDS="${WDS_SHARDS:-/efs-exp/yeyuyao/real_world_wds_chest/real_world_with_cn_0520/train/shard-*.tar}"
+WDS_SHARDS="${WDS_SHARDS:-}"
+VAL_WDS_SHARDS="${VAL_WDS_SHARDS:-}"
 WDS_METADATA="${WDS_METADATA:-$PROJECT_DIR/artifacts/egovla_wds_metadata.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egovla_wds}"
 WAN_CKPT_DIR="${WAN_CKPT_DIR:?Set WAN_CKPT_DIR to Wan2.1-I2V-14B-480P}"
@@ -86,7 +87,6 @@ TRAIN_COMMAND=(
     max_action_dim=48
     max_chunk_size=4
     frame_seqlen=880
-    "egovla_wds_shards=$WDS_SHARDS"
     "egovla_wds_metadata_path=$WDS_METADATA"
     wds_keep_ratio=0.1
     wds_shuffle_buffer=256
@@ -107,6 +107,10 @@ TRAIN_COMMAND=(
     bf16=true
     tf32=true
     eval_bf16=true
+    do_eval=true
+    eval_strategy=steps
+    eval_steps=500
+    per_device_eval_batch_size=1
     dataloader_num_workers=4
     dataloader_pin_memory=false
     dataloader_persistent_workers=true
@@ -120,6 +124,13 @@ TRAIN_COMMAND=(
     ++action_head_cfg.config.defer_lora_injection=true
 )
 
+if [ -n "$WDS_SHARDS" ]; then
+    TRAIN_COMMAND+=("egovla_wds_shards=$WDS_SHARDS")
+fi
+if [ -n "$VAL_WDS_SHARDS" ]; then
+    TRAIN_COMMAND+=("egovla_wds_val_shards=$VAL_WDS_SHARDS")
+fi
+
 if [ -n "${TRAIN_ARGS:-}" ]; then
     read -r -a EXTRA_TRAIN_ARGS <<< "$TRAIN_ARGS"
     TRAIN_COMMAND+=("${EXTRA_TRAIN_ARGS[@]}")
@@ -127,7 +138,8 @@ fi
 
 echo "DreamZero Volcano launch: rank $MACHINE_RANK/$NNODES, $GPUS_PER_NODE GPUs/node"
 echo "master=$MASTER_ADDR:$MASTER_PORT interface=$RDMA_IFNAME"
-echo "shards=$WDS_SHARDS"
+echo "train shards=${WDS_SHARDS:-<config defaults>}"
+echo "val shards=${VAL_WDS_SHARDS:-<config defaults>}"
 echo "metadata=$WDS_METADATA"
 echo "output=$OUTPUT_DIR"
 

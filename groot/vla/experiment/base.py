@@ -781,7 +781,10 @@ class BaseExperiment(ABC):
         return train_dataset
 
     def create_val_dataset(self, cfg, model):
-        return None
+        val_dataset_cfg = cfg.get("val_dataset")
+        if val_dataset_cfg is None:
+            return None
+        return instantiate(val_dataset_cfg)
 
     def create_data_collator(self, cfg, model):
         return instantiate(cfg.data_collator)
@@ -828,14 +831,22 @@ class BaseExperiment(ABC):
         # Fully instantiate the trainer with dataclasses instances.
         trainer = trainer_partial(data_collator=data_collator, args=training_args)
         trainer.base_cfg = cfg
-        train_dl_len = len(trainer.get_train_dataloader())
-        eval_dl_len = (
-            len(trainer.get_eval_dataloader()) if val_dataset is not None else "no eval dataloader"
-        )
+        def safe_len(value):
+            try:
+                return len(value)
+            except (TypeError, ValueError):
+                return None
+
+        train_dl_len = safe_len(trainer.get_train_dataloader())
+        eval_dl_len = safe_len(trainer.get_eval_dataloader()) if val_dataset is not None else None
 
         # Save the total training steps in the config.
         with open_dict(cfg):
-            cfg.total_training_steps = train_dl_len * cfg.training_args.num_train_epochs
+            cfg.total_training_steps = (
+                train_dl_len * cfg.training_args.num_train_epochs
+                if train_dl_len is not None
+                else cfg.max_steps
+            )
 
         # Save config.
         OmegaConf.save(cfg, exp_cfg_dir / "conf.yaml", resolve=True)
@@ -893,9 +904,9 @@ class BaseExperiment(ABC):
             )
 
         mprint(
-            f"train dataloader length: {train_dl_len}\n"
-            f"eval dataloader length: {eval_dl_len}\n"
-            f"train dataset length: {len(trainer.train_dataset)}\n"
+            f"train dataloader length: {train_dl_len or 'streaming'}\n"
+            f"eval dataloader length: {eval_dl_len or ('streaming' if val_dataset is not None else 'disabled')}\n"
+            f"train dataset length: {safe_len(trainer.train_dataset) or 'streaming'}\n"
             f"GPU memory before training: {torch.cuda.memory_allocated() / 1024 / 1024 / 1024} GB",
             flush=True,
         )

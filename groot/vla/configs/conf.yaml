@@ -68,6 +68,7 @@ max_steps: -1
 save_strategy: steps
 save_steps: 500
 eval_strategy: "no"  # there has to be a double quote; otherwise a bare `no` will be interpreted as False
+eval_steps: null
 save_total_limit: 8
 report_to: wandb
 seed: 42
@@ -121,6 +122,8 @@ training_args:
   report_to: ${report_to}
   seed: ${seed}
   do_eval: ${do_eval}
+  eval_strategy: ${eval_strategy}
+  eval_steps: ${eval_steps}
   ddp_find_unused_parameters: ${ddp_find_unused_parameters}
   ddp_bucket_cap_mb: ${ddp_bucket_cap_mb}
   torch_compile_mode: ${torch_compile_mode}

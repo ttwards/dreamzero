@@ -15,7 +15,31 @@ max_action_dim: 48
 num_views: 2
 max_chunk_size: 4
 
-egovla_wds_shards: ???
+egovla_wds_shards:
+  - /efs-exp/yeyuyao/real_world_wds_chest/real_world_with_cn_0520/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds_chest/real_world_with_cn_multitask_0520/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune/folding_paper_boxes/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/folding_paper_box_and_putting_object_inside_with_recover_0503/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/folding_paper_box_and_putting_object_inside_recover_0505/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/box_0513_labeled/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/box0514_labeled/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/open_paper_box_and_take_out_the_cake/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/pack_the_phone_0508/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/put_the_phone_0512/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/put_the_phone_0516/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/put_the_phone_0523/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds_chest/Stack_the_cup_0619_xiaozi1_merged/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds_chest/Stack_the_cup_0619_xiaozi2_merged/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds_chest/Coke_with_ice_0619_xiaozi3_merged/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds_chest/Coke_with_ice_0619_xiaozi4_merged/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds/real_world_dagger_0618/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds/real_world_dagger_0517/Fold_the_paper_box_dagger_0516/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_finetune_corrected/Fold_the_paper_box_dagger_0519/train/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds/real_world_dagger_0517/Pack_the_phone_dagger_0516/train/shard-*.tar
+egovla_wds_val_shards:
+  - /efs-exp/yeyuyao/real_world_wds_chest/real_world_with_cn_0520/val/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds_chest/real_world_with_cn_multitask_0520/val/shard-*.tar
+  - /efs-exp/yeyuyao/real_world_wds/real_world_dagger_0618/val/shard-*.tar
 egovla_wds_metadata_path: ???
 wds_keep_ratio: 0.1
 wds_shuffle_buffer: 256
@@ -32,7 +56,24 @@ train_dataset:
   video_offsets: [0, 3, 6, 9, 12, 15, 18, 21]
   relative_action: true
   load_chest: true
+  allow_missing_chest: true
   keep_ratio: ${wds_keep_ratio}
   shuffle_buffer: ${wds_shuffle_buffer}
   shuffle_initial: ${wds_shuffle_initial}
+  seed: ${seed}
+
+val_dataset:
+  _target_: groot.vla.data.dataset.egovla_wds.EgoVLAWdsDataset
+  shard_urls: ${egovla_wds_val_shards}
+  metadata_path: ${egovla_wds_metadata_path}
+  transforms: ${transform_dual_arm_dexterous_hand}
+  training: false
+  action_horizon: ${action_horizon}
+  max_chunk_size: ${max_chunk_size}
+  video_offsets: [0, 3, 6, 9, 12, 15, 18, 21]
+  relative_action: true
+  load_chest: true
+  allow_missing_chest: true
+  keep_ratio: 1.0
+  max_samples: 64
   seed: ${seed}

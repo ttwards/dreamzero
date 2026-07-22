@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import deque
 import glob
 import io
+import itertools
 import json
 import os
 import random
@@ -89,7 +90,7 @@ def _decode_small_members(sample: dict[str, Any]) -> dict[str, Any]:
         "__key__": sample["__key__"],
         "__url__": sample.get("__url__"),
         "image.jpg": sample["image.jpg"],
-        "chest_image.jpg": sample.get("chest_image.jpg"),
+        "chest_image.jpg": sample.get("chest_image.jpg", sample.get("breast_image.jpg")),
         "lowdim": lowdim,
         "meta": json.loads(sample["meta.json"]),
     }
@@ -137,6 +138,7 @@ def _compose_sample(
     max_chunk_size: int,
     video_offsets: Sequence[int],
     relative_action: bool,
+    include_chest: bool,
 ) -> dict[str, Any] | None:
     if current_index + action_horizon > episode_end:
         return None
@@ -147,7 +149,7 @@ def _compose_sample(
         return None
 
     head_images: list[bytes] = []
-    chest_images: list[bytes] = []
+    chest_images: list[bytes | None] = []
     states: list[np.ndarray] = []
     actions: list[np.ndarray] = []
     for anchor in anchors:
@@ -166,12 +168,12 @@ def _compose_sample(
         for offset in video_offsets:
             frame = frames_by_index[anchor + offset]
             head_images.append(frame["image.jpg"])
-            if frame["chest_image.jpg"] is not None:
+            if include_chest:
                 chest_images.append(frame["chest_image.jpg"])
 
     boundary = frames_by_index[anchors[-1] + action_horizon]
     head_images.append(boundary["image.jpg"])
-    if boundary["chest_image.jpg"] is not None:
+    if include_chest:
         chest_images.append(boundary["chest_image.jpg"])
 
     meta = frames_by_index[current_index]["meta"]
@@ -188,9 +190,7 @@ def _compose_sample(
         "chunk_size": len(anchors),
         "block_anchors": np.asarray(anchors, dtype=np.int64),
     }
-    if chest_images:
-        if len(chest_images) != len(head_images):
-            raise ValueError(f"Incomplete chest camera sequence at {result['__key__']}")
+    if include_chest:
         result["video.chest"] = chest_images
     result.update(split_state_action("state", result.pop("state")))
     result.update(split_state_action("action", result.pop("action")))
@@ -204,6 +204,7 @@ def sliding_block_samples(
     max_chunk_size: int = 4,
     video_offsets: Sequence[int] = (0, 3, 6, 9, 12, 15, 18, 21),
     relative_action: bool = True,
+    include_chest: bool = True,
 ) -> Iterator[dict[str, Any]]:
     """Compose bounded-lookahead samples without loading an episode in memory."""
     if not video_offsets or min(video_offsets) < 0 or max(video_offsets) >= action_horizon:
@@ -232,6 +233,7 @@ def sliding_block_samples(
                 max_chunk_size=max_chunk_size,
                 video_offsets=video_offsets,
                 relative_action=relative_action,
+                include_chest=include_chest,
             )
             if sample is not None:
                 yield sample
@@ -272,9 +274,10 @@ def _decode_jpeg(value: bytes) -> np.ndarray:
 def _materialize_media(sample: dict[str, Any]) -> dict[str, Any]:
     sample["video.head"] = np.stack([_decode_jpeg(value) for value in sample["video.head"]])
     if "video.chest" in sample:
-        sample["video.chest"] = np.stack(
-            [_decode_jpeg(value) for value in sample["video.chest"]]
-        )
+        sample["video.chest"] = np.stack([
+            np.zeros_like(sample["video.head"][index]) if value is None else _decode_jpeg(value)
+            for index, value in enumerate(sample["video.chest"])
+        ])
     instructions = sample["annotation.task"]
     sample["annotation.task"] = random.choice(instructions) if instructions else ""
     return sample
@@ -294,9 +297,11 @@ class EgoVLAWdsDataset(IterableDataset):
         video_offsets: Sequence[int] = (0, 3, 6, 9, 12, 15, 18, 21),
         relative_action: bool = True,
         load_chest: bool = True,
+        allow_missing_chest: bool = False,
         keep_ratio: float = 0.1,
         shuffle_buffer: int = 256,
         shuffle_initial: int = 32,
+        max_samples: int | None = None,
         seed: int = 42,
     ):
         super().__init__()
@@ -309,9 +314,11 @@ class EgoVLAWdsDataset(IterableDataset):
         self.video_offsets = tuple(video_offsets)
         self.relative_action = relative_action
         self.load_chest = load_chest
+        self.allow_missing_chest = allow_missing_chest
         self.keep_ratio = keep_ratio
         self.shuffle_buffer = shuffle_buffer
         self.shuffle_initial = min(shuffle_initial, shuffle_buffer)
+        self.max_samples = max_samples
         self.seed = seed
         self.epoch = 0
         self.transforms = transforms
@@ -358,7 +365,12 @@ class EgoVLAWdsDataset(IterableDataset):
                 lambda sample: "lowdim.npy" in sample
                 and "meta.json" in sample
                 and "image.jpg" in sample
-                and (not self.load_chest or "chest_image.jpg" in sample)
+                and (
+                    not self.load_chest
+                    or self.allow_missing_chest
+                    or "chest_image.jpg" in sample
+                    or "breast_image.jpg" in sample
+                )
             ),
             wds.map(_decode_small_members, handler=wds.warn_and_continue),
             lambda source: sliding_block_samples(
@@ -367,12 +379,15 @@ class EgoVLAWdsDataset(IterableDataset):
                 max_chunk_size=self.max_chunk_size,
                 video_offsets=self.video_offsets,
                 relative_action=self.relative_action,
+                include_chest=self.load_chest,
             ),
         ]
         if self.training and self.keep_ratio < 1.0:
             stages.append(wds.select(lambda _: rng.random() < self.keep_ratio))
         if self.training and self.shuffle_buffer > 1:
             stages.append(wds.shuffle(self.shuffle_buffer, initial=self.shuffle_initial, rng=rng))
+        if self.max_samples is not None:
+            stages.append(lambda source: itertools.islice(source, self.max_samples))
         stages.append(wds.map(_materialize_media, handler=wds.warn_and_continue))
         if apply_transforms and self.transforms is not None:
             stages.append(wds.map(self.transforms, handler=wds.warn_and_continue))
