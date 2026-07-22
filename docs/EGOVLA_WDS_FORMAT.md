@@ -64,6 +64,10 @@ python scripts/data/compute_egovla_wds_metadata.py \
   --output /path/egovla_wds_metadata.json
 ```
 
+火山完整数据配置可直接执行 `scripts/data/egovla_wds_normalizer_volcano.sh`。
+它只读取 `egovla_wds_shards`，不会把 `egovla_wds_val_shards` 或 VLM 数据混入
+state/action 统计。
+
 脚本按同一个 24-step relative-action 定义计算 mean/std/min/max，并用有界
 reservoir 估算 q01/q99。训练配置是
 `groot/vla/configs/data/dreamzero/egovla_wds_fingertips_relative.yaml`。

@@ -29,7 +29,7 @@ PYTHON_BIN="${PYTHON_BIN:-$DEFAULT_PYTHON_BIN}"
 
 WDS_SHARDS="${WDS_SHARDS:-}"
 VAL_WDS_SHARDS="${VAL_WDS_SHARDS:-}"
-WDS_METADATA="${WDS_METADATA:-$PROJECT_DIR/artifacts/egovla_wds_metadata.json}"
+WDS_METADATA="${WDS_METADATA:-$PROJECT_DIR/artifacts/egovla_wds_metadata_full.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egovla_wds}"
 WAN_CKPT_DIR="${WAN_CKPT_DIR:?Set WAN_CKPT_DIR to Wan2.1-I2V-14B-480P}"
 TOKENIZER_DIR="${TOKENIZER_DIR:?Set TOKENIZER_DIR to the umt5-xxl tokenizer}"

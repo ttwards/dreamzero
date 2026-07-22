@@ -196,7 +196,12 @@ def make_metadata(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--shards", nargs="+", required=True)
+    shard_source = parser.add_mutually_exclusive_group(required=True)
+    shard_source.add_argument("--shards", nargs="+")
+    shard_source.add_argument(
+        "--data-config",
+        help="YAML containing egovla_wds_shards; validation shards are ignored.",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--action-horizon", type=int, default=24)
     parser.add_argument("--anchor-stride", type=int, default=1)
@@ -208,10 +213,21 @@ def main() -> None:
     parser.add_argument("--head-only", action="store_true")
     args = parser.parse_args()
 
+    shard_patterns = args.shards
+    if args.data_config is not None:
+        from omegaconf import OmegaConf
+
+        data_config = OmegaConf.load(args.data_config)
+        shard_patterns = OmegaConf.to_container(
+            data_config.egovla_wds_shards, resolve=True
+        )
+    if not isinstance(shard_patterns, list) or not shard_patterns:
+        raise ValueError("No training shard patterns were configured")
+
     state_stats = RunningStatistics(48, args.reservoir_size, args.seed)
     action_stats = RunningStatistics(48, args.reservoir_size, args.seed + 1)
     episode_count = anchor_count = 0
-    for shard in expand_shards(args.shards):
+    for shard in expand_shards(shard_patterns):
         print(f"Scanning {shard}")
         for episode in iter_shard_episodes(shard):
             episode_count += 1
