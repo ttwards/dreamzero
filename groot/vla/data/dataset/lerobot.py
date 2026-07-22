@@ -31,7 +31,9 @@ T_LeRobotMixtureDataset = TypeVar("T_LeRobotMixtureDataset", bound="LeRobotMixtu
 
 LE_ROBOT_MODALITY_FILENAME = "meta/modality.json"
 LE_ROBOT_EPISODE_FILENAME = "meta/episodes.jsonl"
+LE_ROBOT_V3_EPISODE_GLOB = "meta/episodes/**/*.parquet"
 LE_ROBOT_TASKS_FILENAME = "meta/tasks.jsonl"
+LE_ROBOT_V3_TASKS_FILENAME = "meta/tasks.parquet"
 LE_ROBOT_INFO_FILENAME = "meta/info.json"
 LE_ROBOT_STATS_FILENAME = "meta/stats.json"
 LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
@@ -45,6 +47,32 @@ LEROBOT_RELATIVE_HORIZON_STATS_FILE_NAME = "meta/relative_horizon_stats_dreamzer
 
 # Special language keys that load from metadata files instead of parquet columns
 METADATA_LANG_KEYS = ["detailed_global_instruction_medium", "detailed_global_instruction_concise"]
+
+
+def select_trajectory_rows(parquet_df: pd.DataFrame, trajectory_id: int) -> pd.DataFrame:
+    """Select one episode from a data file, preserving v2 compatibility."""
+    if "episode_index" not in parquet_df.columns:
+        return parquet_df
+
+    trajectory_df = parquet_df.loc[parquet_df["episode_index"] == trajectory_id]
+    if trajectory_df.empty:
+        raise ValueError(f"episode_index={trajectory_id} is absent from the data file")
+    return trajectory_df
+
+
+def read_trajectory_parquet(parquet_path: Path, trajectory_id: int) -> pd.DataFrame:
+    """Read exactly one episode from a LeRobot data file.
+
+    LeRobot v2 uses one Parquet file per episode, while v3 consolidates several
+    episodes into each Parquet file. Filtering by ``episode_index`` is harmless
+    for v2 and required for v3; old exports without that column retain the
+    legacy one-file-per-episode behavior.
+    """
+    try:
+        return select_trajectory_rows(pd.read_parquet(parquet_path), trajectory_id)
+    except ValueError as exc:
+        raise ValueError(f"{exc} {parquet_path}") from exc
+
 
 
 def calculate_dataset_statistics(
@@ -188,6 +216,10 @@ class LeRobotSingleDataset(Dataset):
             self.use_global_metadata = True
         self._lerobot_modality_meta = self._get_lerobot_modality_meta()
         self._lerobot_info_meta = self._get_lerobot_info_meta()
+        self._is_lerobot_v3 = str(
+            self._lerobot_info_meta.get("codebase_version", "")
+        ).startswith("v3")
+        self._v3_episode_metadata: pd.DataFrame | None = None
         # Notice: We also include discarded trajectories in stats for larger state coverage, for questions please ask @Fengyuan Hu @Yuqi Xie
         self._lerobot_stats_meta = self._get_lerobot_stats_meta()
         
@@ -411,6 +443,137 @@ class LeRobotSingleDataset(Dataset):
         with open(info_meta_path, "r") as f:
             info_meta = json.load(f)
         return info_meta
+
+    @property
+    def is_lerobot_v3(self) -> bool:
+        """Whether this dataset uses the file-chunked LeRobot v3 layout."""
+        return self._is_lerobot_v3
+
+    def _get_v3_episode_metadata(self) -> pd.DataFrame:
+        """Load episode records from v3's chunked Parquet metadata files."""
+        if self._v3_episode_metadata is not None:
+            return self._v3_episode_metadata
+
+        episode_paths = sorted(self.dataset_path.glob(LE_ROBOT_V3_EPISODE_GLOB))
+        if not episode_paths:
+            # Some early v3 exports use a single, non-chunked Parquet file.
+            single_path = self.dataset_path / "meta/episodes.parquet"
+            if single_path.exists():
+                episode_paths = [single_path]
+        if not episode_paths:
+            raise FileNotFoundError(
+                "LeRobot v3 requires episode metadata under "
+                f"{LE_ROBOT_V3_EPISODE_GLOB} (or meta/episodes.parquet) in {self.dataset_path}"
+            )
+
+        episodes = pd.concat(
+            [pd.read_parquet(path) for path in episode_paths], ignore_index=True
+        )
+        required_columns = {
+            "episode_index",
+            "length",
+            "data/chunk_index",
+            "data/file_index",
+        }
+        missing_columns = required_columns.difference(episodes.columns)
+        if missing_columns:
+            raise ValueError(
+                "Invalid LeRobot v3 episode metadata; missing columns "
+                f"{sorted(missing_columns)} in {episode_paths}"
+            )
+        if episodes["episode_index"].duplicated().any():
+            raise ValueError("LeRobot v3 episode metadata contains duplicate episode_index values")
+
+        self._v3_episode_metadata = episodes.set_index("episode_index", drop=False)
+        return self._v3_episode_metadata
+
+    def _get_v3_episode_record(self, trajectory_id: int) -> pd.Series:
+        episodes = self._get_v3_episode_metadata()
+        try:
+            record = episodes.loc[trajectory_id]
+        except KeyError as exc:
+            raise KeyError(f"Unknown LeRobot v3 episode_index={trajectory_id}") from exc
+        if isinstance(record, pd.DataFrame):
+            raise ValueError(f"Duplicate LeRobot v3 metadata for episode_index={trajectory_id}")
+        return record
+
+    @staticmethod
+    def _get_v3_record_value(record: pd.Series, *column_names: str) -> int:
+        for column_name in column_names:
+            if column_name in record.index and pd.notna(record[column_name]):
+                return int(record[column_name])
+        raise KeyError(
+            "LeRobot v3 episode metadata is missing one of "
+            f"{list(column_names)}. Available columns: {list(record.index)}"
+        )
+
+    def _format_v3_path(
+        self,
+        path_pattern: str,
+        trajectory_id: int,
+        *,
+        video_key: str | None = None,
+    ) -> Path:
+        """Render a v3 data/video path from an episode's file coordinates."""
+        record = self._get_v3_episode_record(trajectory_id)
+        data_chunk_index = self._get_v3_record_value(record, "data/chunk_index")
+        data_file_index = self._get_v3_record_value(record, "data/file_index")
+
+        chunk_index = data_chunk_index
+        file_index = data_file_index
+        if video_key is not None:
+            chunk_index = self._get_v3_record_value(
+                record, f"videos/{video_key}/chunk_index"
+            )
+            file_index = self._get_v3_record_value(
+                record, f"videos/{video_key}/file_index"
+            )
+
+        values = defaultdict(
+            str,
+            {
+                "chunk_index": chunk_index,
+                "file_index": file_index,
+                # Keep legacy names available for hybrid export templates.
+                "episode_chunk": data_chunk_index,
+                "episode_index": trajectory_id,
+                "video_key": video_key or "",
+            },
+        )
+        try:
+            return self.dataset_path / path_pattern.format_map(values)
+        except (KeyError, ValueError) as exc:
+            raise ValueError(
+                f"Could not format LeRobot v3 path template {path_pattern!r} for "
+                f"episode_index={trajectory_id}"
+            ) from exc
+
+    def get_video_timestamp_offset(self, trajectory_id: int, key: str) -> float:
+        """Return the start time of an episode within a v3 shared video file."""
+        if not self.is_lerobot_v3:
+            return 0.0
+
+        original_key = self.lerobot_modality_meta.video[key].original_key or key
+        record = self._get_v3_episode_record(trajectory_id)
+        timestamp_key = f"videos/{original_key}/from_timestamp"
+        if timestamp_key not in record.index or pd.isna(record[timestamp_key]):
+            raise KeyError(
+                "LeRobot v3 video metadata is missing "
+                f"{timestamp_key!r} for episode_index={trajectory_id}."
+            )
+        return float(record[timestamp_key])
+
+    def get_all_video_timestamp_offsets(self) -> dict[int, dict[str, float]]:
+        """Precompute v3 episode offsets for loaders that cache video frames."""
+        return {
+            int(trajectory_id): {
+                key: self.get_video_timestamp_offset(
+                    int(trajectory_id), key.replace("video.", "")
+                )
+                for key in self.modality_keys.get("video", [])
+            }
+            for trajectory_id in self.trajectory_ids
+        }
 
     def _get_lerobot_stats_meta(self) -> dict[str, DatasetStatisticalValues]:
         """Get the metadata for the LeRobot dataset."""
@@ -1121,6 +1284,13 @@ class LeRobotSingleDataset(Dataset):
 
     def _get_trajectories(self) -> tuple[np.ndarray, np.ndarray]:
         """Get the trajectories in the dataset."""
+        if self.is_lerobot_v3:
+            episode_metadata = self._get_v3_episode_metadata()
+            return (
+                episode_metadata["episode_index"].to_numpy(dtype=np.int64),
+                episode_metadata["length"].to_numpy(dtype=np.int64),
+            )
+
         # Get trajectory lengths, IDs, and whitelist from dataset metadata
         episode_path = self.dataset_path / LE_ROBOT_EPISODE_FILENAME
         with open(episode_path, "r") as f:
@@ -1194,10 +1364,26 @@ class LeRobotSingleDataset(Dataset):
 
     def _get_chunk_size(self) -> int:
         """Get the chunk size for the LeRobot dataset."""
-        return self.lerobot_info_meta["chunks_size"]
+        return int(self.lerobot_info_meta.get("chunks_size", 1))
 
     def _get_tasks(self) -> pd.DataFrame:
         """Get the tasks for the dataset."""
+        if self.is_lerobot_v3:
+            tasks_path = self.dataset_path / LE_ROBOT_V3_TASKS_FILENAME
+            if not tasks_path.exists():
+                raise FileNotFoundError(f"LeRobot v3 tasks file not found at {tasks_path}")
+            tasks = pd.read_parquet(tasks_path)
+            # v3 writes ``task`` as the DataFrame index; normalize to the v2
+            # representation expected by get_language().
+            if tasks.index.name == "task":
+                tasks = tasks.reset_index()
+            if "task_index" not in tasks.columns or "task" not in tasks.columns:
+                raise ValueError(
+                    "Invalid LeRobot v3 tasks metadata; expected task and task_index columns "
+                    f"in {tasks_path}"
+                )
+            return tasks.set_index("task_index")
+
         tasks_path = self.dataset_path / LE_ROBOT_TASKS_FILENAME
         with open(tasks_path, "r") as f:
             tasks = [json.loads(line) for line in f]
@@ -1332,6 +1518,8 @@ class LeRobotSingleDataset(Dataset):
 
     def get_parquet_path(self, trajectory_id: int) -> Path:
         """Get the parquet path for a trajectory."""
+        if self.is_lerobot_v3:
+            return self._format_v3_path(self.data_path_pattern, trajectory_id)
         chunk_index = self.get_episode_chunk(trajectory_id)
         return self.dataset_path / self.data_path_pattern.format(
             episode_chunk=chunk_index, episode_index=trajectory_id
@@ -1344,7 +1532,15 @@ class LeRobotSingleDataset(Dataset):
         else:
             parquet_path = self.get_parquet_path(trajectory_id)
             assert parquet_path.exists(), f"Parquet file not found at {parquet_path}"
-            return pd.read_parquet(parquet_path)
+            trajectory_data = read_trajectory_parquet(parquet_path, trajectory_id)
+            trajectory_index = self.get_trajectory_index(trajectory_id)
+            expected_length = self.trajectory_lengths[trajectory_index]
+            if len(trajectory_data) != expected_length:
+                raise ValueError(
+                    f"Trajectory length mismatch for episode_index={trajectory_id}: "
+                    f"{len(trajectory_data)} rows in {parquet_path}, expected {expected_length}"
+                )
+            return trajectory_data
 
     def get_trajectory_index(self, trajectory_id: int) -> int:
         """Get the index of the trajectory in the dataset by the trajectory ID.
@@ -1429,10 +1625,14 @@ class LeRobotSingleDataset(Dataset):
         Returns:
             Path: Path to the video file.
         """
-        chunk_index = self.get_episode_chunk(trajectory_id)
         original_key = self.lerobot_modality_meta.video[key].original_key
         if original_key is None:
             original_key = key
+        if self.is_lerobot_v3:
+            return self._format_v3_path(
+                self.video_path_pattern, trajectory_id, video_key=original_key
+            )
+        chunk_index = self.get_episode_chunk(trajectory_id)
         video_filename = self.video_path_pattern.format(
             episode_chunk=chunk_index, episode_index=trajectory_id, video_key=original_key
         )
@@ -1470,8 +1670,11 @@ class LeRobotSingleDataset(Dataset):
         assert self.curr_traj_data is not None, f"No data found for {trajectory_id=}"
         assert "timestamp" in self.curr_traj_data.columns, f"No timestamp found in {trajectory_id=}"
         timestamp: np.ndarray = self.curr_traj_data["timestamp"].to_numpy()
-        # Get the corresponding video timestamps from the step indices
-        video_timestamp = timestamp[step_indices]
+        # v3 MP4 files concatenate episodes, while data timestamps stay local
+        # to the episode. Offset into the shared video before decoding.
+        video_timestamp = timestamp[step_indices] + self.get_video_timestamp_offset(
+            trajectory_id, key
+        )
 
         # try:
         return get_frames_by_timestamps(

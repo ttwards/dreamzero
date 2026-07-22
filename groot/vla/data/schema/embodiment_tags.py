@@ -37,6 +37,13 @@ class EmbodimentTag(Enum):
     The DEXMG GR1 dataset with arms and waist and Fourier hand.
     """
 
+    DUAL_ARM_DEXTEROUS_HAND = "dual_arm_dexterous_hand"
+    """
+    EgoVLA dual-arm dexterous robot: two 3D wrist positions, two wrist 6D
+    rotations, and five XYZ fingertips per hand (48 state/action dimensions,
+    no head DOF).
+    """
+
     ROBOCASA_SINGLE_ARM = "robocasa_single_arm"
     """
     The RoboCasa dataset with single arm.

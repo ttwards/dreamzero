@@ -342,6 +342,94 @@ transform_yam:
     - ${model_specific_transform}
 
 
+
+################################################################################
+# dual_arm_dexterous_hand (dual wrist 18D + dual five-fingertip XYZ 30D)
+#
+# The custom meta/modality.json must map these names to the source v3 feature
+# columns. State/action concatenate in EgoVLA lowdim order to 48D.
+################################################################################
+
+modality_config_dual_arm_dexterous_hand:
+  video:
+    _target_: groot.vla.data.dataset.ModalityConfig
+    delta_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    eval_delta_indices: [0]
+    modality_keys:
+      - video.head
+      - video.chest
+  state:
+    _target_: groot.vla.data.dataset.ModalityConfig
+    delta_indices: [0]
+    modality_keys:
+      - state.left_wrist_position
+      - state.right_wrist_position
+      - state.left_wrist_rotation_6d
+      - state.right_wrist_rotation_6d
+      - state.left_fingertip_position
+      - state.right_fingertip_position
+  action:
+    _target_: groot.vla.data.dataset.ModalityConfig
+    delta_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    modality_keys:
+      - action.left_wrist_position
+      - action.right_wrist_position
+      - action.left_wrist_rotation_6d
+      - action.right_wrist_rotation_6d
+      - action.left_fingertip_position
+      - action.right_fingertip_position
+  language:
+    _target_: groot.vla.data.dataset.ModalityConfig
+    delta_indices: [0]
+    modality_keys:
+      - annotation.task
+
+transform_dual_arm_dexterous_hand:
+  _target_: groot.vla.data.transform.ComposedModalityTransform
+  transforms:
+    - <<: *totensor_cfg
+      apply_to: ${modality_config_dual_arm_dexterous_hand.video.modality_keys}
+    - <<: *crop_cfg
+      apply_to: ${modality_config_dual_arm_dexterous_hand.video.modality_keys}
+    - <<: *resize_cfg
+      apply_to: ${modality_config_dual_arm_dexterous_hand.video.modality_keys}
+    - <<: *color_jitter_cfg
+      apply_to: ${modality_config_dual_arm_dexterous_hand.video.modality_keys}
+    - <<: *to_numpy_cfg
+      apply_to: ${modality_config_dual_arm_dexterous_hand.video.modality_keys}
+
+    - _target_: groot.vla.data.transform.StateActionToTensor
+      apply_to: ${modality_config_dual_arm_dexterous_hand.state.modality_keys}
+    - _target_: groot.vla.data.transform.StateActionTransform
+      apply_to: ${modality_config_dual_arm_dexterous_hand.state.modality_keys}
+      normalization_modes:
+        state.left_wrist_position: q99
+        state.right_wrist_position: q99
+        state.left_wrist_rotation_6d: q99
+        state.right_wrist_rotation_6d: q99
+        state.left_fingertip_position: q99
+        state.right_fingertip_position: q99
+
+    - _target_: groot.vla.data.transform.StateActionToTensor
+      apply_to: ${modality_config_dual_arm_dexterous_hand.action.modality_keys}
+    - _target_: groot.vla.data.transform.StateActionTransform
+      apply_to: ${modality_config_dual_arm_dexterous_hand.action.modality_keys}
+      normalization_modes:
+        action.left_wrist_position: q99
+        action.right_wrist_position: q99
+        action.left_wrist_rotation_6d: q99
+        action.right_wrist_rotation_6d: q99
+        action.left_fingertip_position: q99
+        action.right_fingertip_position: q99
+
+    - _target_: groot.vla.data.transform.ConcatTransform
+      video_concat_order: ${modality_config_dual_arm_dexterous_hand.video.modality_keys}
+      state_concat_order: ${modality_config_dual_arm_dexterous_hand.state.modality_keys}
+      action_concat_order: ${modality_config_dual_arm_dexterous_hand.action.modality_keys}
+
+    - ${model_specific_transform}
+
+
 ################################################################################
 # Modality Configs
 ################################################################################
@@ -350,6 +438,7 @@ modality_configs:
   oxe_droid: ${modality_config_oxe_droid}
   agibot: ${modality_config_agibot}
   yam: ${modality_config_yam}
+  dual_arm_dexterous_hand: ${modality_config_dual_arm_dexterous_hand}
 
 ################################################################################
 # Transforms
@@ -359,6 +448,7 @@ transforms:
   oxe_droid: ${transform_oxe_droid}
   agibot: ${transform_agibot}
   yam: ${transform_yam}
+  dual_arm_dexterous_hand: ${transform_dual_arm_dexterous_hand}
 
 ################################################################################
 # Metadata Versions
@@ -368,6 +458,8 @@ metadata_versions:
   oxe_droid: '0221'
   agibot: '0221'
   yam: '0221'
+  # Used only when use_global_metadata=true; local v3 datasets carry their own metadata.
+  dual_arm_dexterous_hand: 'v3'
 
 ################################################################################
 # FPS (per embodiment, null means use dataset default)
@@ -375,3 +467,4 @@ metadata_versions:
 
 fps:
   yam: 30
+  dual_arm_dexterous_hand: 30

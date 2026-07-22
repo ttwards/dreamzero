@@ -80,6 +80,37 @@ LAYERNORM_LAYERS = [
 ]
 
 
+_EXPANDABLE_ACTION_ADAPTER_KEYS = (
+    ".action_encoder.W1.W",
+    ".action_decoder.layer2.W",
+    ".action_decoder.layer2.b",
+)
+
+
+def expand_action_adapter_state_dict(
+    state_dict: dict[str, torch.Tensor],
+    target_state_dict: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    """Partially load action adapters when max_action_dim was increased."""
+    for key, source in list(state_dict.items()):
+        target = target_state_dict.get(key)
+        if target is None or source.shape == target.shape:
+            continue
+        if not any(name in key for name in _EXPANDABLE_ACTION_ADAPTER_KEYS):
+            continue
+        if source.ndim != target.ndim:
+            continue
+        expanded = target.detach().clone()
+        overlap = tuple(slice(0, min(old, new)) for old, new in zip(source.shape, target.shape))
+        expanded[overlap] = source[overlap].to(device=expanded.device, dtype=expanded.dtype)
+        state_dict[key] = expanded
+        mprint(
+            f"Expanded pretrained action adapter {key}: "
+            f"{tuple(source.shape)} -> {tuple(target.shape)}"
+        )
+    return state_dict
+
+
 class LossLoggerCallback(TrainerCallback):
     """Callback that writes per-step loss metrics to a JSONL file for offline analysis."""
 
@@ -706,6 +737,7 @@ class BaseExperiment(ABC):
             from safetensors.torch import load_file
 
             ckpt_dir = cfg.pretrained_model_path
+            target_state_dict = model.state_dict()
             safetensors_index_path = os.path.join(ckpt_dir, "model.safetensors.index.json")
             safetensors_path = os.path.join(ckpt_dir, "model.safetensors")
 
@@ -716,11 +748,15 @@ class BaseExperiment(ABC):
                     shard_path = os.path.join(ckpt_dir, shard_file)
                     mprint(f"Loading shard: {shard_path}")
                     shard_state_dict = load_file(shard_path)
+                    shard_state_dict = expand_action_adapter_state_dict(
+                        shard_state_dict, target_state_dict
+                    )
                     model.load_state_dict(shard_state_dict, strict=False)
                     del shard_state_dict
                     gc.collect()
             elif os.path.exists(safetensors_path):
                 state_dict = load_file(safetensors_path)
+                state_dict = expand_action_adapter_state_dict(state_dict, target_state_dict)
                 model.load_state_dict(state_dict, strict=False)
             else:
                 raise FileNotFoundError(

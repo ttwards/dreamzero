@@ -116,6 +116,12 @@ def collate(features: List[dict], tokenizer: AutoTokenizer, num_views=3, embodim
                             + " The video is split into three views: The top view shows the camera view from the robot's wrist, the bottom-left view shows the camera view from the left exterior camera, and the bottom-right view shows the camera view from the right exterior camera. During training, one of the two bottom exterior views may be a black screen (dropped view). The robot "
                             + processed_item.lower()
                         )
+                    elif elem["embodiment_id"] == embodiment_tag_mapping[EmbodimentTag.DUAL_ARM_DEXTEROUS_HAND.value]:
+                        processed_item = (
+                            "A two-view video shows a dual-arm dexterous robot. "
+                            "The views come from a head camera and a chest camera. The robot "
+                            + processed_item.lower()
+                        )
                     elif elem["embodiment_id"] == embodiment_tag_mapping[EmbodimentTag.GR1_UNIFIED.value]:
                         processed_item = "A single view video shows that a human " + processed_item.lower()
                     elif elem["embodiment_id"] == embodiment_tag_mapping[EmbodimentTag.MECKA_HANDS.value]:
@@ -138,8 +144,14 @@ def collate(features: List[dict], tokenizer: AutoTokenizer, num_views=3, embodim
                             + " The video is split into three views: The top view shows the camera view from the robot's wrist, the bottom-left view shows the camera view from the left exterior camera, and the bottom-right view shows the camera view from the right exterior camera. During training, one of the two bottom exterior views may be a black screen (dropped view). The robot "
                             + str(item).lower()
                         )
+                    elif elem["embodiment_id"] == embodiment_tag_mapping[EmbodimentTag.DUAL_ARM_DEXTEROUS_HAND.value]:
+                        item = (
+                            "A two-view video shows a dual-arm dexterous robot. "
+                            "The views come from a head camera and a chest camera. The robot "
+                            + str(item).lower()
+                        )
                     elif elem["embodiment_id"] == embodiment_tag_mapping[EmbodimentTag.GR1_UNIFIED.value]:
-                        item = "A single view video shows that a human " + str(item).lower() 
+                        item = "A single view video shows that a human " + str(item).lower()
                     elif elem["embodiment_id"] == embodiment_tag_mapping[EmbodimentTag.MECKA_HANDS.value]:
                         item = "A single view video shows that a human " + str(item).lower()
                     elif elem["embodiment_id"] == embodiment_tag_mapping[EmbodimentTag.XDOF.value]:

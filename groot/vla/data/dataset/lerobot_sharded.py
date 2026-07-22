@@ -12,7 +12,11 @@ import yaml
 
 from groot.vla.common.utils import get_frames_by_timestamps
 
-from .lerobot import LE_ROBOT_EPISODE_FILENAME, LeRobotMixtureDataset, LeRobotSingleDataset
+from .lerobot import (
+    LeRobotMixtureDataset,
+    LeRobotSingleDataset,
+    select_trajectory_rows,
+)
 
 
 class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
@@ -32,6 +36,7 @@ class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
         self.num_steps_per_shard = num_steps_per_shard
         self.all_video_paths = self.get_all_video_paths()
         self.all_parquet_paths = self.get_all_parquet_paths()
+        self.all_video_timestamp_offsets = self.get_all_video_timestamp_offsets()
         self.sharded_trajectories, self.shard_lengths = self.generate_shards()
         self.frames_to_load = self.get_all_frames_to_load()
 
@@ -166,6 +171,7 @@ class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
         frames_to_load: dict[int, dict[str, np.ndarray]],
         video_backend: str = "pyav",
         video_backend_kwargs: dict | None = None,
+        video_timestamp_offsets: dict[int, dict[str, float]] | None = None,
     ) -> tuple[
         dict[str, np.ndarray], dict[int, int], pd.DataFrame, dict[int, dict[str, np.ndarray]]
     ]:
@@ -177,26 +183,34 @@ class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
         frame_indices_map = {}
         curr_step_index = 0
         cached_df = None
+        parquet_file_cache: dict[Path, pd.DataFrame] = {}
         curr_frame_index = {key: 0 for key in modality_keys["video"]}
         for trajectory_id in trajectory_ids:
-            trajectory_start_indices[trajectory_id] = curr_step_index
-            parquet_path = parquet_paths[trajectory_id]
-            parquet_df = pd.read_parquet(parquet_path)
-            # Check timestamps are in sync
-            parquet_timestamps = parquet_df["timestamp"].to_numpy()
-            trajectory_length = len(parquet_timestamps)
             if isinstance(trajectory_id, np.integer):
                 trajectory_id = trajectory_id.item()
             assert isinstance(
                 trajectory_id, int
             ), f"trajectory_id must be an integer, got {type(trajectory_id)}"
+            trajectory_start_indices[trajectory_id] = curr_step_index
+            parquet_path = parquet_paths[trajectory_id]
+            if parquet_path not in parquet_file_cache:
+                parquet_file_cache[parquet_path] = pd.read_parquet(parquet_path)
+            parquet_df = select_trajectory_rows(
+                parquet_file_cache[parquet_path], trajectory_id
+            )
+            # Check timestamps are in sync
+            parquet_timestamps = parquet_df["timestamp"].to_numpy()
+            trajectory_length = len(parquet_timestamps)
             frame_indices_map[trajectory_id] = {}
             for key in modality_keys["video"]:
                 # Only load the frames that are needed
                 this_frames_to_load = frames_to_load[trajectory_id][key]
                 if len(this_frames_to_load) == 0:
                     continue
-                load_timestamps = parquet_timestamps[this_frames_to_load]
+                timestamp_offset = (video_timestamp_offsets or {}).get(
+                    trajectory_id, {}
+                ).get(key, 0.0)
+                load_timestamps = parquet_timestamps[this_frames_to_load] + timestamp_offset
                 assert key.startswith("video."), f"Video key must start with 'video.', got {key}"
                 # Store a mapping that frame_indices_map[trajectory_id][key][frame_index] = index_in_concat_video_frames
                 frame_indices_map[trajectory_id][key] = (
@@ -246,6 +260,7 @@ class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
             self.frames_to_load,
             self.video_backend,
             self.video_backend_kwargs,
+            self.all_video_timestamp_offsets,
         )
 
     def finish_cache_shard(self):
@@ -335,6 +350,7 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
         self.num_steps_per_shard = num_steps_per_shard
         self.all_video_paths = self.get_all_video_paths()
         self.all_parquet_paths = self.get_all_parquet_paths()
+        self.all_video_timestamp_offsets = self.get_all_video_timestamp_offsets()
         self.sharded_trajectories, self.shard_lengths = self.generate_shards()
 
         # Set shard caching properties
@@ -454,6 +470,7 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
         video_backend: str = "pyav",
         video_backend_kwargs: dict | None = None,
         fps: float = None,
+        video_timestamp_offsets: dict[int, dict[str, float]] | None = None,
     ) -> tuple[dict[str, np.ndarray], dict[int, int], pd.DataFrame]:
         # Optional logging to avoid stdout overhead during tight loops
         # (controlled by instance-level verbose flag)
@@ -465,25 +482,31 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
         trajectory_start_indices = {}
         curr_step_index = 0
         cached_df = None
+        parquet_file_cache: dict[Path, pd.DataFrame] = {}
         for trajectory_id in trajectory_ids:
-            trajectory_start_indices[trajectory_id] = curr_step_index
-            parquet_path = parquet_paths[trajectory_id]
-            parquet_df = pd.read_parquet(parquet_path)
-            # Check timestamps are in sync
-            parquet_timestamps = parquet_df["timestamp"].to_numpy()
-            trajectory_length = len(parquet_timestamps)
             if isinstance(trajectory_id, np.integer):
                 trajectory_id = trajectory_id.item()
             assert isinstance(
                 trajectory_id, int
             ), f"trajectory_id must be an integer, got {type(trajectory_id)}"
+            trajectory_start_indices[trajectory_id] = curr_step_index
+            parquet_path = parquet_paths[trajectory_id]
+            if parquet_path not in parquet_file_cache:
+                parquet_file_cache[parquet_path] = pd.read_parquet(parquet_path)
+            parquet_df = select_trajectory_rows(
+                parquet_file_cache[parquet_path], trajectory_id
+            )
+            # Check timestamps are in sync
+            parquet_timestamps = parquet_df["timestamp"].to_numpy()
+            trajectory_length = len(parquet_timestamps)
             for key in modality_keys["video"]:
                 assert key.startswith("video."), f"Video key must start with 'video.', got {key}"
                 if key not in cached_frames:
                     cached_frames[key] = []
                 frames = get_frames_by_timestamps(
                     video_paths[trajectory_id][key].as_posix(),
-                    timestamps=parquet_timestamps,
+                    timestamps=parquet_timestamps
+                    + (video_timestamp_offsets or {}).get(trajectory_id, {}).get(key, 0.0),
                     video_backend=video_backend,
                     video_backend_kwargs=video_backend_kwargs,
                     fps=fps,
@@ -518,6 +541,7 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
             self.video_backend,
             self.video_backend_kwargs,
             self.fps,
+            self.all_video_timestamp_offsets,
         )
 
     def finish_cache_shard(self):
