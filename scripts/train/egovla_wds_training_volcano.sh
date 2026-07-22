@@ -18,10 +18,14 @@ if [ -z "$GPUS_PER_NODE" ]; then
     GPUS_PER_NODE="$(nvidia-smi -L | wc -l | tr -d ' ')"
 fi
 
-PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.11}"
-if [ ! -x "$PYTHON_BIN" ]; then
-    PYTHON_BIN="$(command -v python3)"
+if [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
+    DEFAULT_PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
+elif [ -x /usr/bin/python3.11 ]; then
+    DEFAULT_PYTHON_BIN=/usr/bin/python3.11
+else
+    DEFAULT_PYTHON_BIN="$(command -v python3)"
 fi
+PYTHON_BIN="${PYTHON_BIN:-$DEFAULT_PYTHON_BIN}"
 
 WDS_SHARDS="${WDS_SHARDS:-/efs-exp/yeyuyao/real_world_wds_chest/real_world_with_cn_0520/train/shard-*.tar}"
 WDS_METADATA="${WDS_METADATA:-$PROJECT_DIR/artifacts/egovla_wds_metadata.json}"
