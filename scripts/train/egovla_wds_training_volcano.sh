@@ -8,12 +8,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_DIR"
 
-MASTER_ADDR="${MASTER_ADDR:-${MLP_WORKER_0_HOST:-127.0.0.1}}"
-MASTER_PORT="${MASTER_PORT:-${MLP_WORKER_0_PORT:-29500}}"
-MACHINE_RANK="${MACHINE_RANK:-${MLP_ROLE_INDEX:-0}}"
-NNODES="${NNODES:-${MLP_WORKER_NUM:-1}}"
+MASTER_ADDR="${MASTER_ADDR:-${MLP_WORKER_0_HOST:-}}"
+MASTER_PORT="${MASTER_PORT:-${MLP_WORKER_0_PORT:-}}"
+MACHINE_RANK="${MACHINE_RANK:-${MLP_ROLE_INDEX:-}}"
+NNODES="${NNODES:-${MLP_WORKER_NUM:-}}"
 GPUS_PER_NODE="${GPUS_PER_NODE:-${MLP_WORKER_GPU:-}}"
 RDMA_IFNAME="${RDMA_IFNAME:-${MLP_IFNAME:-eth0}}"
+
+: "${MASTER_ADDR:?Set MASTER_ADDR or use a Volcano MLP worker task}"
+: "${MASTER_PORT:?Set MASTER_PORT or use a Volcano MLP worker task}"
+: "${MACHINE_RANK:?Set MACHINE_RANK or use a Volcano MLP worker task}"
+: "${NNODES:?Set NNODES or use a Volcano MLP worker task}"
 if [ -z "$GPUS_PER_NODE" ]; then
     GPUS_PER_NODE="$(nvidia-smi -L | wc -l | tr -d ' ')"
 fi
@@ -38,6 +43,10 @@ GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-64}"
 MAX_STEPS="${MAX_STEPS:-5000}"
 REPORT_TO="${REPORT_TO:-wandb}"
 WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
+
+if [ "$REPORT_TO" = "wandb" ]; then
+    : "${WANDB_API_KEY:?Set WANDB_API_KEY=... when launching the Volcano job}"
+fi
 
 if [ ! -f "$WDS_METADATA" ]; then
     echo "Missing WDS metadata: $WDS_METADATA" >&2
