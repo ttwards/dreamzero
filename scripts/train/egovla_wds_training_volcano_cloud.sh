@@ -56,11 +56,13 @@ export NVIMGCODEC_DECODE="${NVIMGCODEC_DECODE:-true}"
 # "grouped" keeps PyTorch's A800-optimized FlashAttention kernel while
 # batching query groups that share K/V. "flex" remains available for A/B.
 export TEACHER_FORCING_ATTN_BACKEND="${TEACHER_FORCING_ATTN_BACKEND:-grouped}"
-# Compile the complete VLA module through TrainingArguments -> Accelerate ->
-# DeepSpeedEngine.compile(). Keep graph breaks enabled because preprocessing
-# and logging contain Python control flow; the fixed training shapes remain
-# specialized for Inductor.
-export TORCH_COMPILE="${TORCH_COMPILE:-true}"
+# DeepSpeed 0.18.4 DeepCompile has one process group for both parameter
+# all-gather and gradient reduce-scatter.  It therefore cannot use hpZ's
+# node-local secondary parameter shard while keeping gradients globally
+# sharded.  Keep the 64-rank HSDP-like topology as the production default.
+# Single-node DeepCompile experiments can opt in with TORCH_COMPILE=true and
+# zero3_hpz8_deepcompile.json.
+export TORCH_COMPILE="${TORCH_COMPILE:-false}"
 export TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
@@ -79,6 +81,7 @@ export TORCHINDUCTOR_FALLBACK_RANDOM="${TORCHINDUCTOR_FALLBACK_RANDOM:-true}"
 # 80 GiB A800.  Use the fixed pointwise launch heuristic; GEMM selection and
 # the rest of Inductor remain enabled.
 export TORCHINDUCTOR_AUTOTUNE_POINTWISE="${TORCHINDUCTOR_AUTOTUNE_POINTWISE:-false}"
+export ALLOW_MULTINODE_DEEPCOMPILE="${ALLOW_MULTINODE_DEEPCOMPILE:-false}"
 export REPORT_TO="${REPORT_TO:-wandb}"
 export WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
 export DREAMZERO_RUNTIME_DIR="${DREAMZERO_RUNTIME_DIR:-/opt/dreamzero-runtime}"
@@ -106,6 +109,14 @@ GRADIENT_ACCUMULATION_STEPS=$((GLOBAL_BATCH_SIZE / 64))
 
 if [[ "$REPORT_TO" == "wandb" ]]; then
     : "${WANDB_API_KEY:?WANDB_API_KEY is required when REPORT_TO=wandb}"
+fi
+
+if (( NNODES > 1 )) && [[ "$TORCH_COMPILE" == "true" ]] && \
+   [[ "$ALLOW_MULTINODE_DEEPCOMPILE" != "true" ]]; then
+    echo "Multi-node DeepCompile is disabled by default because DeepSpeed 0.18.4" >&2
+    echo "does not preserve hpZ's node-local parameter all-gather group." >&2
+    echo "Set ALLOW_MULTINODE_DEEPCOMPILE=true only for an explicit experiment." >&2
+    exit 2
 fi
 
 echo "DreamZero Volcano cloud launch"
