@@ -390,20 +390,30 @@ class TargetedCompileCallback(TrainerCallback):
         """
         dynamo = getattr(torch, "_dynamo", None)
         distributed = getattr(torch, "distributed", None)
-        if dynamo is None or distributed is None:
+        communication_modules = [distributed]
+        try:
+            from deepspeed import comm as deepspeed_comm
+
+            communication_modules.append(deepspeed_comm)
+        except ImportError:
+            pass
+        if dynamo is None:
             return
 
-        for name in (
-            "all_gather_into_tensor",
-            "all_gather",
-            "all_gather_coalesced",
-        ):
-            function = getattr(distributed, name, None)
-            if function is None or getattr(function, "_dreamzero_dynamo_disabled", False):
+        for communication_module in communication_modules:
+            if communication_module is None:
                 continue
-            disabled = dynamo.disable(function)
-            setattr(disabled, "_dreamzero_dynamo_disabled", True)
-            setattr(distributed, name, disabled)
+            for name in (
+                "all_gather_into_tensor",
+                "all_gather",
+                "all_gather_coalesced",
+            ):
+                function = getattr(communication_module, name, None)
+                if function is None or getattr(function, "_dreamzero_dynamo_disabled", False):
+                    continue
+                disabled = dynamo.disable(function)
+                setattr(disabled, "_dreamzero_dynamo_disabled", True)
+                setattr(communication_module, name, disabled)
 
     def on_train_begin(self, args, state, control, model=None, **kwargs):
         if self.completed:
