@@ -18,6 +18,9 @@
   "bf16": {
     "enabled": "auto"
   },
+  "compile": {
+    "deepcompile": true
+  },
   "zero_optimization": {
     "stage": 3,
     "zero_hpz_partition_size": 8,
