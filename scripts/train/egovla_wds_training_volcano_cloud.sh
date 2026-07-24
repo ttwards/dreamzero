@@ -48,10 +48,10 @@ export MAX_STEPS="${MAX_STEPS:-100000}"
 export TRAIN_ARCHITECTURE="${TRAIN_ARCHITECTURE:-full}"
 export SAVE_LORA_ONLY="${SAVE_LORA_ONLY:-false}"
 # ZeRO++ HPZ partitions parameters over the eight local ranks and replicates
-# those shards across nodes. Optimizer state remains CPU-offloaded and
-# gradients remain globally partitioned, preserving compile memory headroom
-# without a cross-node parameter all-gather on every transformer block.
-export DEEPSPEED_CONFIG="${DEEPSPEED_CONFIG:-groot/vla/configs/deepspeed/zero3_hpz8_offload.json}"
+# those shards across nodes. Gradients and optimizer states remain globally
+# partitioned. Keep the optimizer on GPU for the 64-rank production run;
+# zero3_hpz8_offload.json remains available for memory-constrained smoke tests.
+export DEEPSPEED_CONFIG="${DEEPSPEED_CONFIG:-groot/vla/configs/deepspeed/zero3_hpz8.json}"
 export NVIMGCODEC_DECODE="${NVIMGCODEC_DECODE:-true}"
 # "grouped" keeps PyTorch's A800-optimized FlashAttention kernel while
 # batching query groups that share K/V. "flex" remains available for A/B.
