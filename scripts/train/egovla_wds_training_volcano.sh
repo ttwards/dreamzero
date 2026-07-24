@@ -85,6 +85,7 @@ TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
 TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
+TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_frozen}"
 TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 TORCHINDUCTOR_COMPILE_THREADS="${TORCHINDUCTOR_COMPILE_THREADS:-}"
 TORCHINDUCTOR_FALLBACK_RANDOM="${TORCHINDUCTOR_FALLBACK_RANDOM:-true}"
@@ -96,6 +97,27 @@ PROFILE_ACTIVE_STEPS="${PROFILE_ACTIVE_STEPS:-2}"
 PROFILE_RANKS="${PROFILE_RANKS:-0}"
 PROFILE_UPLOAD_WANDB="${PROFILE_UPLOAD_WANDB:-true}"
 PROFILE_DIR="${PROFILE_DIR:-/tmp/dreamzero-profiler/${OUTPUT_DIR##*/}}"
+
+case "$TORCH_COMPILE_SCOPE" in
+    wan|frozen|wan_frozen|all|none) ;;
+    *)
+        echo "Unsupported TORCH_COMPILE_SCOPE=$TORCH_COMPILE_SCOPE; use wan, frozen, wan_frozen, all, or none." >&2
+        exit 2
+        ;;
+esac
+
+# Passing a non-null torch_compile_backend or torch_compile_mode to
+# Transformers implicitly enables whole-model compilation.  Targeted mode
+# therefore passes explicit nulls and lets TargetedCompileCallback compile
+# selected forward methods after DeepSpeed has prepared the engine.
+TRAINER_TORCH_COMPILE=false
+TRAINER_TORCH_COMPILE_BACKEND=null
+TRAINER_TORCH_COMPILE_MODE=null
+if [ "$TORCH_COMPILE" = "true" ] && [ "$TORCH_COMPILE_SCOPE" = "all" ]; then
+    TRAINER_TORCH_COMPILE=true
+    TRAINER_TORCH_COMPILE_BACKEND="$TORCH_COMPILE_BACKEND"
+    TRAINER_TORCH_COMPILE_MODE="$TORCH_COMPILE_MODE"
+fi
 
 if [[ "$TEACHER_FORCING_ATTN_BACKEND" == "flex" ]] && \
    ! "$PYTHON_BIN" -c \
@@ -161,11 +183,12 @@ export NO_ALBUMENTATIONS_UPDATE=1
 export PYTHONUNBUFFERED=1
 export WANDB_PROJECT
 if [ "$TORCH_COMPILE" = "true" ]; then
-    # TrainingArguments configures the backend/mode. These two Accelerate
-    # options control the remaining torch.compile arguments before
-    # DeepSpeedEngine.compile() wraps the complete VLA model.
-    export ACCELERATE_DYNAMO_USE_DYNAMIC="$TORCH_COMPILE_DYNAMIC"
-    export ACCELERATE_DYNAMO_USE_FULLGRAPH="$TORCH_COMPILE_FULLGRAPH"
+    # These Accelerate options apply only to the explicit whole-model path.
+    # Targeted mode compiles selected forward methods in TargetedCompileCallback.
+    if [ "$TRAINER_TORCH_COMPILE" = "true" ]; then
+        export ACCELERATE_DYNAMO_USE_DYNAMIC="$TORCH_COMPILE_DYNAMIC"
+        export ACCELERATE_DYNAMO_USE_FULLGRAPH="$TORCH_COMPILE_FULLGRAPH"
+    fi
     export TORCHINDUCTOR_CACHE_DIR
     if [ -n "$TORCHINDUCTOR_COMPILE_THREADS" ]; then
         export TORCHINDUCTOR_COMPILE_THREADS
@@ -217,9 +240,9 @@ TRAIN_COMMAND=(
     bf16=true
     tf32=true
     eval_bf16=true
-    "torch_compile=$TORCH_COMPILE"
-    "torch_compile_backend=$TORCH_COMPILE_BACKEND"
-    "torch_compile_mode=$TORCH_COMPILE_MODE"
+    "torch_compile=$TRAINER_TORCH_COMPILE"
+    "torch_compile_backend=$TRAINER_TORCH_COMPILE_BACKEND"
+    "torch_compile_mode=$TRAINER_TORCH_COMPILE_MODE"
     do_eval=true
     eval_strategy=steps
     eval_steps=500
@@ -282,7 +305,7 @@ echo "runtime=$LOCAL_RUNTIME_DIR"
 echo "torch extensions=$TORCH_EXTENSIONS_DIR"
 echo "deepspeed config=$DEEPSPEED_CONFIG"
 echo "teacher-forcing attention=$TEACHER_FORCING_ATTN_BACKEND"
-echo "torch compile=$TORCH_COMPILE backend=$TORCH_COMPILE_BACKEND mode=$TORCH_COMPILE_MODE dynamic=$TORCH_COMPILE_DYNAMIC fullgraph=$TORCH_COMPILE_FULLGRAPH"
+echo "torch compile requested=$TORCH_COMPILE scope=$TORCH_COMPILE_SCOPE whole_model=$TRAINER_TORCH_COMPILE backend=$TORCH_COMPILE_BACKEND mode=$TORCH_COMPILE_MODE dynamic=$TORCH_COMPILE_DYNAMIC fullgraph=$TORCH_COMPILE_FULLGRAPH"
 if [ "$TORCH_COMPILE" = "true" ]; then
     echo "torch inductor cache=$TORCHINDUCTOR_CACHE_DIR"
     if [ -n "$TORCHINDUCTOR_COMPILE_THREADS" ]; then

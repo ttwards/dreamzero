@@ -67,6 +67,9 @@ export TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
 export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
+# Default compile scope keeps the trainable Wan DiT and frozen preprocessing
+# encoders as separate graphs. Set scope=all only for an explicit whole-VLA A/B.
+export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_frozen}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 # This setting is per rank. Eight local ranks times 12 workers gives a
 # 96-worker whole-node compilation budget without spawning the default
@@ -111,7 +114,17 @@ if [[ "$REPORT_TO" == "wandb" ]]; then
     : "${WANDB_API_KEY:?WANDB_API_KEY is required when REPORT_TO=wandb}"
 fi
 
+DEEPSPEED_CONFIG_FILE="$DEEPSPEED_CONFIG"
+if [[ "$DEEPSPEED_CONFIG_FILE" != /* ]]; then
+    DEEPSPEED_CONFIG_FILE="$SCRIPT_DIR/../../$DEEPSPEED_CONFIG_FILE"
+fi
+DEEPCOMPILE_CONFIG=false
+if [[ -f "$DEEPSPEED_CONFIG_FILE" ]] && \
+   grep -Eq '"deepcompile"[[:space:]]*:[[:space:]]*true' "$DEEPSPEED_CONFIG_FILE"; then
+    DEEPCOMPILE_CONFIG=true
+fi
 if (( NNODES > 1 )) && [[ "$TORCH_COMPILE" == "true" ]] && \
+   [[ "$TORCH_COMPILE_SCOPE" == "all" ]] && [[ "$DEEPCOMPILE_CONFIG" == "true" ]] && \
    [[ "$ALLOW_MULTINODE_DEEPCOMPILE" != "true" ]]; then
     echo "Multi-node DeepCompile is disabled by default because DeepSpeed 0.18.4" >&2
     echo "does not preserve hpZ's node-local parameter all-gather group." >&2
@@ -131,7 +144,7 @@ echo "architecture: ${TRAIN_ARCHITECTURE}"
 echo "deepspeed config: ${DEEPSPEED_CONFIG}"
 echo "nvImageCodec decode: ${NVIMGCODEC_DECODE}"
 echo "teacher-forcing attention: ${TEACHER_FORCING_ATTN_BACKEND}"
-echo "torch compile: ${TORCH_COMPILE} (${TORCH_COMPILE_BACKEND}/${TORCH_COMPILE_MODE}, dynamic=${TORCH_COMPILE_DYNAMIC}, fullgraph=${TORCH_COMPILE_FULLGRAPH})"
+echo "torch compile: requested=${TORCH_COMPILE} scope=${TORCH_COMPILE_SCOPE} (${TORCH_COMPILE_BACKEND}/${TORCH_COMPILE_MODE}, dynamic=${TORCH_COMPILE_DYNAMIC}, fullgraph=${TORCH_COMPILE_FULLGRAPH})"
 echo "torch inductor compile workers: ${TORCHINDUCTOR_COMPILE_THREADS}/rank ($((TORCHINDUCTOR_COMPILE_THREADS * GPUS_PER_NODE))/node)"
 echo "torch inductor random fallback: ${TORCHINDUCTOR_FALLBACK_RANDOM}"
 echo "torch inductor pointwise autotune: ${TORCHINDUCTOR_AUTOTUNE_POINTWISE}"

@@ -327,6 +327,102 @@ class PerformanceMetricsCallback(TrainerCallback):
             control.should_log = True
 
 
+class TargetedCompileCallback(TrainerCallback):
+    """Compile selected DreamZero submodules after DeepSpeed has prepared them.
+
+    ``TrainingArguments.torch_compile`` asks Accelerate to compile the complete
+    model.  That is useful for a small, ordinary model but makes the Wan VLA
+    graph unnecessarily large: frozen T5/CLIP/VAE paths and the trainable Wan
+    DiT are traced together.  This callback keeps the module registration and
+    ZeRO parameter handles unchanged, then replaces only selected ``forward``
+    callables after the DeepSpeed engine is ready.
+
+    Supported scopes are ``wan``, ``frozen``, and ``wan_frozen``.  The launcher
+    uses ``all`` to request the original whole-model Accelerate path explicitly.
+    """
+
+    def __init__(self, trainer, scope: str):
+        self.trainer = trainer
+        self.scope = scope
+        self.completed = False
+
+    @staticmethod
+    def _unwrap_model(model):
+        """Reach the original VLA module without replacing its parameter tree."""
+        current = model
+        seen = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            # DeepSpeedEngine and DDP expose the actual VLA as ``module``.
+            if hasattr(current, "module") and (
+                current.__class__.__name__.endswith("Engine")
+                or current.__class__.__name__.endswith("DistributedDataParallel")
+            ):
+                current = current.module
+                continue
+            break
+        return current
+
+    @staticmethod
+    def _compile_forward(owner, attribute, label, compile_kwargs):
+        forward = getattr(owner, attribute)
+        if getattr(forward, "_dreamzero_target_compile", False):
+            return False
+        compiled = torch.compile(forward, **compile_kwargs)
+        # Mark the bound callable before assigning it back to the instance.
+        setattr(compiled, "_dreamzero_target_compile", True)
+        setattr(owner, attribute, compiled)
+        print(f"Targeted torch.compile enabled: {label}", flush=True)
+        return True
+
+    def on_train_begin(self, args, state, control, model=None, **kwargs):
+        if self.completed:
+            return
+
+        compile_kwargs = {
+            "backend": os.environ.get("TORCH_COMPILE_BACKEND", "inductor"),
+            "mode": os.environ.get("TORCH_COMPILE_MODE") or "default",
+            "dynamic": os.environ.get("TORCH_COMPILE_DYNAMIC", "false").lower()
+            in {"1", "true", "yes", "on"},
+            "fullgraph": os.environ.get("TORCH_COMPILE_FULLGRAPH", "false").lower()
+            in {"1", "true", "yes", "on"},
+        }
+
+        root = self._unwrap_model(
+            getattr(self.trainer, "model_wrapped", None) or model or self.trainer.model
+        )
+        action_head = getattr(root, "action_head", None)
+        if action_head is None:
+            raise RuntimeError("Targeted compile could not find model.action_head")
+
+        targets = []
+        if self.scope in {"wan", "wan_frozen"}:
+            targets.append((action_head.model, "forward", "Wan DiT"))
+        if self.scope in {"frozen", "wan_frozen"}:
+            targets.extend(
+                [
+                    (action_head.text_encoder, "forward", "frozen T5"),
+                    (action_head.image_encoder.model.visual, "forward", "frozen CLIP visual"),
+                    (action_head.vae.model, "encode", "frozen VAE encode"),
+                ]
+            )
+        if not targets:
+            raise ValueError(
+                f"Unsupported targeted compile scope={self.scope!r}; "
+                "use wan, frozen, wan_frozen, or all"
+            )
+
+        rank = int(os.environ.get("RANK", "0"))
+        if rank == 0:
+            print(
+                f"Targeted torch.compile scope={self.scope} kwargs={compile_kwargs}",
+                flush=True,
+            )
+        for owner, attribute, label in targets:
+            self._compile_forward(owner, attribute, label, compile_kwargs)
+        self.completed = True
+
+
 class CheckpointFormatCallback(TrainerCallback):
     """This callback format checkpoint to make them standalone. For now, it copies all config
     files to /checkpoint-{step}/experiment_cfg/:
@@ -1687,6 +1783,28 @@ class BaseExperiment(ABC):
                 "global_batch_size is not set. This is fine for debugging, but please set this for real experiments."
             )
 
+        # Accelerate compiles the complete VLA when TrainingArguments.torch_compile
+        # is true. DreamZero also supports a lower-memory targeted mode that
+        # compiles Wan and/or the frozen encoders after DeepSpeed preparation.
+        # Clear all three TrainingArguments switches because Transformers treats
+        # a non-null backend or mode as an implicit request to compile.
+        compile_requested = os.environ.get("TORCH_COMPILE", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        compile_scope = os.environ.get("TORCH_COMPILE_SCOPE", "wan_frozen").lower()
+        targeted_compile = compile_requested and compile_scope not in {"all", "none"}
+        if targeted_compile:
+            training_args.torch_compile = False
+            training_args.torch_compile_backend = None
+            training_args.torch_compile_mode = None
+            print(
+                f"Using targeted compile scope={compile_scope}; disabling whole-model Accelerate compile",
+                flush=True,
+            )
+
         # Instantiate the partial trainer.
         trainer_partial = instantiate(
             cfg.trainer,
@@ -1708,6 +1826,8 @@ class BaseExperiment(ABC):
                 if isinstance(callback, WandbCallback):
                     trainer.callback_handler.callbacks.remove(callback)
             trainer.add_callback(NamespaceWandbCallback())
+        if targeted_compile:
+            trainer.add_callback(TargetedCompileCallback(trainer, compile_scope))
 
         def safe_len(value):
             try:
