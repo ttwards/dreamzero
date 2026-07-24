@@ -654,6 +654,21 @@ class BaseTrainer(transformers.Trainer):
         # Increase the cache size limit for torch._dynamo to
         # accommodate videos with different numbers of frames.
         torch._dynamo.config.cache_size_limit = 1000
+        # PyTorch 2.8 Inductor can miss its random-op rewrite when a ZeRO-3
+        # DeepCompile fake trace turns the latent spatial dimensions into
+        # SymInts. In that case lowering aten.randn raises instead of compiling
+        # the graph. Keep random kernels as ATen extern calls while compiling
+        # the rest of the model; these kernels are tiny relative to the DiT.
+        fallback_random = os.environ.get("TORCHINDUCTOR_FALLBACK_RANDOM")
+        if fallback_random is not None:
+            from torch._inductor import config as inductor_config
+
+            inductor_config.fallback_random = fallback_random.lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
 
         self.compute_dtype = kwargs.pop("compute_dtype")
         self.output_dir = kwargs.pop("output_dir")

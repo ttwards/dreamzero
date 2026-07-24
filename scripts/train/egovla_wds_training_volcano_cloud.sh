@@ -66,6 +66,10 @@ export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
 export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
+# PyTorch 2.8 + ZeRO-3 DeepCompile can leave symbolic randn nodes that miss
+# Inductor's random rewrite. Only those small RNG kernels use ATen fallback;
+# the complete VLA graph still goes through Inductor.
+export TORCHINDUCTOR_FALLBACK_RANDOM="${TORCHINDUCTOR_FALLBACK_RANDOM:-true}"
 export REPORT_TO="${REPORT_TO:-wandb}"
 export WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
 export DREAMZERO_RUNTIME_DIR="${DREAMZERO_RUNTIME_DIR:-/opt/dreamzero-runtime}"
@@ -108,6 +112,7 @@ echo "deepspeed config: ${DEEPSPEED_CONFIG}"
 echo "nvImageCodec decode: ${NVIMGCODEC_DECODE}"
 echo "teacher-forcing attention: ${TEACHER_FORCING_ATTN_BACKEND}"
 echo "torch compile: ${TORCH_COMPILE} (${TORCH_COMPILE_BACKEND}/${TORCH_COMPILE_MODE}, dynamic=${TORCH_COMPILE_DYNAMIC}, fullgraph=${TORCH_COMPILE_FULLGRAPH})"
+echo "torch inductor random fallback: ${TORCHINDUCTOR_FALLBACK_RANDOM}"
 echo "local runtime: ${DREAMZERO_RUNTIME_DIR}"
 echo "output: ${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egovla_wds}"
 
