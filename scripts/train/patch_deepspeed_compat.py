@@ -11,7 +11,12 @@ DeepCompile's ZeRO-3 setup also assumes every model parameter has an optimizer
 gradient partition. Frozen text/image/VAE parameters intentionally are not in
 the optimizer, so register those parameters with an empty gradient buffer.
 
-The patches are source-checked and idempotent. If DeepSpeed changes either
+DeepCompile traces ZeRO-3 parameters using their full shapes, then releases
+them before TorchDynamo builds tensor-match guards. Keep the full symbolic
+shape for tracing while recording the stable released representation for
+guards. This is a backport of the upstream DeepSpeed guard-stability fix.
+
+The patches are source-checked and idempotent. If DeepSpeed changes an
 affected block, this script fails instead of modifying an unknown version.
 """
 
@@ -53,6 +58,83 @@ DEEPCOMPILE_PATCHED_BLOCK = """\
         grad_buffer = torch.Tensor()
         if use_opt and p.requires_grad:
             grad_buffer = optimizer._DeepSpeedZeroOptimizer_Stage3__param_id_to_grad_partition[p.ds_id]
+"""
+
+DEEPCOMPILE_GUARD_VULNERABLE_BLOCK = """\
+def wrap_if_ds_param(t):
+    if hasattr(t, 'ds_id'):
+        data = torch.rand(t.ds_shape,
+                          dtype=t.dtype,
+                          layout=t.layout,
+                          device=t.device,
+                          pin_memory=t.is_pinned(),
+                          requires_grad=t.requires_grad)
+        if isinstance(t, torch.nn.Parameter):
+            t = torch.nn.Parameter(data, requires_grad=t.requires_grad)
+        else:
+            t = data
+    return t
+
+
+def patch_fake_tensor():
+    # dynamo tracer uses wrap_to_fake_tensor_and_record
+    # Wrapping FakeTensorMode.from_tensor is not sufficient as dynamo generates SymbolicContext before calling from_tensor
+    original_wrap_to_fake_tensor_and_record = wrap_to_fake_tensor_and_record
+
+    def wrap_to_fake_tensor_and_record_wrapper(t, *args, **kwargs):
+        dummy_tensor = wrap_if_ds_param(t)
+        ret = original_wrap_to_fake_tensor_and_record(dummy_tensor, *args, **kwargs)
+        if tracing_context := torch._guards.TracingContext.try_get():
+            tracing_context.tensor_to_context[t] = tracing_context.tensor_to_context.pop(dummy_tensor)
+        return ret
+"""
+
+DEEPCOMPILE_GUARD_PATCHED_BLOCK = """\
+def wrap_if_ds_param(t):
+    if hasattr(t, 'ds_id'):
+        data = torch.rand(t.ds_shape,
+                          dtype=t.dtype,
+                          layout=t.layout,
+                          device=t.device,
+                          pin_memory=t.is_pinned(),
+                          requires_grad=t.requires_grad)
+        if isinstance(t, torch.nn.Parameter):
+            t = torch.nn.Parameter(data, requires_grad=t.requires_grad)
+        else:
+            t = data
+    return t
+
+
+def _get_guard_sizes_strides(t):
+    if hasattr(t, "ds_id"):
+        # ZeRO-3 may temporarily all-gather a parameter during tracing, but
+        # Dynamo guards run after DeepSpeed releases it back to empty(0).
+        released = torch.empty(0, dtype=t.dtype, device=t.device)
+        return released.size(), released.stride()
+    return t.size(), t.stride()
+
+
+def patch_fake_tensor():
+    # dynamo tracer uses wrap_to_fake_tensor_and_record
+    # Wrapping FakeTensorMode.from_tensor is not sufficient as dynamo generates SymbolicContext before calling from_tensor
+    original_wrap_to_fake_tensor_and_record = wrap_to_fake_tensor_and_record
+
+    def wrap_to_fake_tensor_and_record_wrapper(t, *args, **kwargs):
+        dummy_tensor = wrap_if_ds_param(t)
+        ret = original_wrap_to_fake_tensor_and_record(dummy_tensor, *args, **kwargs)
+        tx = kwargs.get("tx") if "tx" in kwargs else args[0]
+        source = kwargs.get("source")
+        if tracing_context := torch._guards.TracingContext.try_get():
+            tracing_context.tensor_to_context[t] = tracing_context.tensor_to_context.pop(dummy_tensor)
+        if source is not None:
+            # Preserve the full ds_shape symbolic context, but guard against
+            # the stable released ZeRO-3 representation.
+            size, stride = _get_guard_sizes_strides(t)
+            tx.output.input_source_to_sizes_strides[source] = {
+                "size": size,
+                "stride": stride,
+            }
+        return ret
 """
 
 
@@ -123,6 +205,14 @@ def main() -> None:
                 _deepspeed_source("compile/init_z3.py"),
                 DEEPCOMPILE_VULNERABLE_BLOCK,
                 DEEPCOMPILE_PATCHED_BLOCK,
+            )
+        )
+        patches.append(
+            (
+                "DeepCompile ZeRO-3 guard stability",
+                _deepspeed_source("compile/patch_fake_tensor.py"),
+                DEEPCOMPILE_GUARD_VULNERABLE_BLOCK,
+                DEEPCOMPILE_GUARD_PATCHED_BLOCK,
             )
         )
 

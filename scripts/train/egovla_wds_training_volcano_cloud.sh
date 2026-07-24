@@ -65,9 +65,6 @@ export TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
 export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
-# DeepCompile temporarily changes ZeRO-3 parameters between their full and
-# 1-D sharded layouts, so Dynamo must allow parameter-shape guards to vary.
-export TORCH_COMPILE_FORCE_PARAMETER_STATIC_SHAPES="${TORCH_COMPILE_FORCE_PARAMETER_STATIC_SHAPES:-false}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 export REPORT_TO="${REPORT_TO:-wandb}"
 export WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
@@ -110,7 +107,7 @@ echo "architecture: ${TRAIN_ARCHITECTURE}"
 echo "deepspeed config: ${DEEPSPEED_CONFIG}"
 echo "nvImageCodec decode: ${NVIMGCODEC_DECODE}"
 echo "teacher-forcing attention: ${TEACHER_FORCING_ATTN_BACKEND}"
-echo "torch compile: ${TORCH_COMPILE} (${TORCH_COMPILE_BACKEND}/${TORCH_COMPILE_MODE}, dynamic=${TORCH_COMPILE_DYNAMIC}, fullgraph=${TORCH_COMPILE_FULLGRAPH}, parameter_static_shapes=${TORCH_COMPILE_FORCE_PARAMETER_STATIC_SHAPES})"
+echo "torch compile: ${TORCH_COMPILE} (${TORCH_COMPILE_BACKEND}/${TORCH_COMPILE_MODE}, dynamic=${TORCH_COMPILE_DYNAMIC}, fullgraph=${TORCH_COMPILE_FULLGRAPH})"
 echo "local runtime: ${DREAMZERO_RUNTIME_DIR}"
 echo "output: ${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egovla_wds}"
 
