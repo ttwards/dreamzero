@@ -21,11 +21,10 @@ graph breaks, AOTAutograd can invoke graph compiler closures out of FIFO order,
 pairing one graph's parameter indices with another graph's inputs. Keep the
 one-shot real inputs in each backend closure instead.
 
-DeepCompile's ZeRO-3 partitioner forces parameter-derived activations to be
-saved unless they are aliases or casts. Wan's per-block timestep modulation is
-a cheap add involving a trainable parameter, but its output is nearly 1 GiB at
-the training sequence length. Recompute that add in backward instead of saving
-one copy for every transformer block.
+An earlier DreamZero experiment extended DeepCompile's parameter recomputation
+set with ``aten.add.Tensor``. It did not affect the forward scheduling issue it
+targeted, so this script also removes that exact experimental patch from
+already-prepared runtimes.
 
 The patches are source-checked and idempotent. If DeepSpeed changes an
 affected block, this script fails instead of modifying an unknown version.
@@ -221,7 +220,7 @@ DEEPCOMPILE_INPUT_CHECK_PATCHED_BLOCK = """\
             param_manager[graph_id] = DSGraphParamManager(gm.graph, real_inputs, param_indices)
 """
 
-DEEPCOMPILE_PARAM_POINTWISE_VULNERABLE_BLOCK = """\
+DEEPCOMPILE_PARAM_POINTWISE_ORIGINAL_BLOCK = """\
     no_copy_ops = get_no_copy_ops()
 
     def need_recompute(n: Node) -> bool:
@@ -231,7 +230,7 @@ DEEPCOMPILE_PARAM_POINTWISE_VULNERABLE_BLOCK = """\
         return False
 """
 
-DEEPCOMPILE_PARAM_POINTWISE_PATCHED_BLOCK = """\
+DEEPCOMPILE_PARAM_POINTWISE_EXPERIMENTAL_BLOCK = """\
     no_copy_ops = get_no_copy_ops()
     # Saving the output of a cheap parameter-dependent add can be much more
     # expensive than recomputing it. Wan timestep modulation produces one
@@ -332,12 +331,47 @@ def _apply_patch_set(
     return True
 
 
+def _remove_experimental_patch(
+    source_path: Path,
+    original_block: str,
+    experimental_block: str,
+    description: str,
+) -> bool:
+    source = source_path.read_text(encoding="utf-8")
+    if experimental_block in source:
+        source_path.write_text(
+            source.replace(experimental_block, original_block, 1),
+            encoding="utf-8",
+        )
+        return True
+    if original_block in source:
+        return False
+    raise RuntimeError(
+        f"DeepSpeed {description} source does not match the expected code: "
+        f"{source_path}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
     args = parser.parse_args()
 
     config = _load_config(args.config)
+    if _deepcompile_zero3_enabled(config):
+        source_path = _deepspeed_source("compile/partitioner.py")
+        changed = _remove_experimental_patch(
+            source_path,
+            DEEPCOMPILE_PARAM_POINTWISE_ORIGINAL_BLOCK,
+            DEEPCOMPILE_PARAM_POINTWISE_EXPERIMENTAL_BLOCK,
+            "DeepCompile parameter-derived pointwise recomputation cleanup",
+        )
+        state = "removed" if changed else "not present"
+        print(
+            f"DeepSpeed obsolete pointwise recomputation experiment: "
+            f"{state} ({source_path})"
+        )
+
     patches = []
     if _hpz_enabled(config):
         patches.append(
@@ -371,16 +405,6 @@ def main() -> None:
                 ),
             )
         )
-        patches.append(
-            (
-                "DeepCompile parameter-derived pointwise recomputation",
-                _deepspeed_source("compile/partitioner.py"),
-                DEEPCOMPILE_PARAM_POINTWISE_VULNERABLE_BLOCK,
-                DEEPCOMPILE_PARAM_POINTWISE_PATCHED_BLOCK,
-                (),
-            )
-        )
-
     for description, source_path, vulnerable_block, patched_block, patched_markers in patches:
         changed = _apply_patch(
             source_path,

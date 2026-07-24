@@ -1600,6 +1600,27 @@ class CausalWanSelfAttention(nn.Module):
         return x, updated_kv_cache
 
 
+def _aligned_modulation_part(
+    timestep_modulation: torch.Tensor,
+    learned_modulation: torch.Tensor,
+    index: int,
+    target_length: int,
+) -> torch.Tensor:
+    """Build one modulation component without materializing all components."""
+    timestep_index = 0 if timestep_modulation.shape[2] == 1 else index
+    part = (
+        timestep_modulation.select(2, timestep_index)
+        + learned_modulation.select(1, index).unsqueeze(1)
+    )
+    modulation_length = part.shape[1]
+    if modulation_length == target_length:
+        return part
+    if modulation_length >= target_length:
+        return part[:, :target_length]
+    repeat = (target_length + modulation_length - 1) // modulation_length
+    return part.repeat_interleave(repeat, dim=1)[:, :target_length]
+
+
 class CausalWanAttentionBlock(nn.Module):
 
     def __init__(self,
@@ -1677,25 +1698,13 @@ class CausalWanAttentionBlock(nn.Module):
             e(Tensor): Shape [B, F, 6, C]
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
-        e = (self.modulation.unsqueeze(1) + e).chunk(6, dim=2)
-
-        # Align modulation sequence length to x so mul/add broadcast (e.g. when F != L under compile)
         L = x.shape[1]
-        aligned = []
-        for part in e:
-            L_e = part.shape[1]
-            if L_e == L:
-                aligned.append(part)
-            elif L_e >= L:
-                aligned.append(part[:, :L])
-            else:
-                repeat = (L + L_e - 1) // L_e
-                aligned.append(part.repeat_interleave(repeat, dim=1)[:, :L])
-        e = tuple(aligned)
 
         # self-attention
+        shift_self = _aligned_modulation_part(e, self.modulation, 0, L)
+        scale_self = _aligned_modulation_part(e, self.modulation, 1, L)
         y, updated_kv_cache = self.self_attn(
-            x=(self.norm1(x) * (1 + e[1].squeeze(2)) + e[0].squeeze(2)),
+            x=(self.norm1(x) * (1 + scale_self) + shift_self),
             freqs=freqs,
             freqs_action=freqs_action,
             freqs_state=freqs_state,
@@ -1704,18 +1713,22 @@ class CausalWanAttentionBlock(nn.Module):
             is_tf=is_tf,
             current_start_frame=current_start_frame,
         )
-        x = x + (y * e[2].squeeze(2))
+        gate_self = _aligned_modulation_part(e, self.modulation, 2, L)
+        x = x + (y * gate_self)
 
         # cross-attention & ffn function
-        def cross_attn_ffn(x, context, e):
+        def cross_attn_ffn(x, context):
             x = x + self.cross_attn(self.norm3(x), context)
+            shift_ffn = _aligned_modulation_part(e, self.modulation, 3, L)
+            scale_ffn = _aligned_modulation_part(e, self.modulation, 4, L)
             y = self.ffn(
-                (self.norm2(x) * (1 + e[4].squeeze(2)) + e[3].squeeze(2))
+                self.norm2(x) * (1 + scale_ffn) + shift_ffn
             )
-            x = x + (y * e[5].squeeze(2))
+            gate_ffn = _aligned_modulation_part(e, self.modulation, 5, L)
+            x = x + (y * gate_ffn)
             return x
 
-        x = cross_attn_ffn(x, context, e)
+        x = cross_attn_ffn(x, context)
         return x, updated_kv_cache
 
 
@@ -1742,21 +1755,10 @@ class CausalHead(nn.Module):
             x(Tensor): Shape [B, L1, C]
             e(Tensor): Shape [B, F, 1, C]
         """
-        e = (self.modulation.unsqueeze(1) + e).chunk(2, dim=2)
-        # Align modulation sequence length to x (e.g. when F != L1 under compile)
         L = x.shape[1]
-        aligned = []
-        for part in e:
-            L_e = part.shape[1]
-            if L_e == L:
-                aligned.append(part)
-            elif L_e >= L:
-                aligned.append(part[:, :L])
-            else:
-                repeat = (L + L_e - 1) // L_e
-                aligned.append(part.repeat_interleave(repeat, dim=1)[:, :L])
-        e = tuple(aligned)
-        x = (self.head(self.norm(x) * (1 + e[1].squeeze(2)) + e[0].squeeze(2)))
+        shift = _aligned_modulation_part(e, self.modulation, 0, L)
+        scale = _aligned_modulation_part(e, self.modulation, 1, L)
+        x = self.head(self.norm(x) * (1 + scale) + shift)
         return x
 
 
