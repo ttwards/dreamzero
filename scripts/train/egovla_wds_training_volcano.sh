@@ -112,8 +112,9 @@ if [ ! -f "$DEEPSPEED_CONFIG" ]; then
     echo "Missing DeepSpeed config: $DEEPSPEED_CONFIG" >&2
     exit 2
 fi
-if [ "${PATCH_DEEPSPEED_HPZ_SMALL_PARAM:-true}" = "true" ]; then
-    "$PYTHON_BIN" "$SCRIPT_DIR/patch_deepspeed_hpz_small_param.py" \
+PATCH_DEEPSPEED_COMPAT="${PATCH_DEEPSPEED_COMPAT:-${PATCH_DEEPSPEED_HPZ_SMALL_PARAM:-true}}"
+if [ "$PATCH_DEEPSPEED_COMPAT" = "true" ]; then
+    "$PYTHON_BIN" "$SCRIPT_DIR/patch_deepspeed_compat.py" \
         --config "$DEEPSPEED_CONFIG"
 fi
 required_files=(
