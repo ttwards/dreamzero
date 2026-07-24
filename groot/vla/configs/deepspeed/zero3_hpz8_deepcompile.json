@@ -18,6 +18,9 @@
   "bf16": {
     "enabled": "auto"
   },
+  "data_types": {
+    "grad_accum_dtype": "bf16"
+  },
   "compile": {
     "deepcompile": true
   },

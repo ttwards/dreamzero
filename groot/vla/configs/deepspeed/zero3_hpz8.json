@@ -18,6 +18,9 @@
   "bf16": {
     "enabled": "auto"
   },
+  "data_types": {
+    "grad_accum_dtype": "bf16"
+  },
   "zero_optimization": {
     "stage": 3,
     "zero_hpz_partition_size": 8,
