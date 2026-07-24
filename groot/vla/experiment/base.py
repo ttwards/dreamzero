@@ -415,6 +415,24 @@ class TargetedCompileCallback(TrainerCallback):
                 setattr(disabled, "_dreamzero_dynamo_disabled", True)
                 setattr(communication_module, name, disabled)
 
+        # ``partition_parameters.py`` keeps the DeepSpeed comm module in a
+        # module global, but the parameter hook reaches it through the nested
+        # ``param.all_gather -> Init._all_gather`` closure.  Disable that hook
+        # boundary too, so a stale function object cannot be captured before
+        # the collective wrapper is reached.
+        try:
+            from deepspeed.runtime.zero.partition_parameters import Init as zero_init
+
+            for name in ("_all_gather", "_allgather_params", "_allgather_params_coalesced"):
+                function = getattr(zero_init, name, None)
+                if function is None or getattr(function, "_dreamzero_dynamo_disabled", False):
+                    continue
+                disabled = dynamo.disable(function)
+                setattr(disabled, "_dreamzero_dynamo_disabled", True)
+                setattr(zero_init, name, disabled)
+        except ImportError:
+            pass
+
     def on_train_begin(self, args, state, control, model=None, **kwargs):
         if self.completed:
             return
