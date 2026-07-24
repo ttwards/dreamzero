@@ -124,6 +124,19 @@ class VLAExperiment(BaseExperiment):
 
 @hydra.main(config_path="../configs", config_name="conf", version_base=None)
 def main(cfg):
+    if cfg.torch_compile:
+        # DeepCompile gathers ZeRO-3 parameters to their full shapes while
+        # tracing, then releases them back to 1-D shards. Dynamo's default
+        # static parameter-shape guard therefore observes two valid layouts
+        # for the same parameter and rejects the compiled graph.
+        torch._dynamo.config.force_parameter_static_shapes = (
+            cfg.torch_compile_force_parameter_static_shapes
+        )
+        logger.info(
+            "torch.compile force_parameter_static_shapes=%s",
+            torch._dynamo.config.force_parameter_static_shapes,
+        )
+
     # Automatically update action dim and action horizon keys if specified in the config
     cfg = apply_action_overrides(cfg)
 

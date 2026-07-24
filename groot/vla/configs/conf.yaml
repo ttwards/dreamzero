@@ -94,6 +94,7 @@ eval_bf16: true
 torch_compile: false
 torch_compile_backend: inductor
 torch_compile_mode: null
+torch_compile_force_parameter_static_shapes: true
 
 # === Low-overhead W&B performance telemetry ===
 performance_enabled: true
