@@ -321,6 +321,29 @@ class WANPolicyHead(ActionHead):
         self.defer_lora_injection = config.defer_lora_injection
         print("defer_lora_injection@@", self.defer_lora_injection)
         self.set_trainable_parameters(config.tune_projector, config.tune_diffusion_model)
+        self._detach_frozen_vae_from_zero3_tree()
+
+    def _detach_frozen_vae_from_zero3_tree(self):
+        """Keep the causal VAE local instead of sharding it with ZeRO-3.
+
+        The VAE is frozen and its encoder uses a per-call ``feat_cache`` whose
+        entries have layer-specific channel dimensions.  DeepSpeed ZeRO-3
+        hooks on this non-trainable module can leave the cache path in an
+        inconsistent state (for example, a 384-channel cache paired with a
+        96-channel input).  Removing only the VAE from the registered module
+        tree keeps it replicated in BF16 on each rank while trainable Wan
+        parameters remain fully managed by ZeRO-3.  ``_ensure_vae_on_device``
+        moves this unregistered frozen module after the distributed engine is
+        prepared.
+        """
+        vae = self._modules.pop("vae", None)
+        if vae is None:
+            return
+        self.__dict__["vae"] = vae
+        vae.requires_grad_(False)
+        vae.eval()
+        self._vae_device_ready = False
+        print("Frozen VAE kept replicated outside the ZeRO-3 parameter tree")
 
     def set_trainable_parameters(self, tune_projector: bool, tune_diffusion_model: bool):
         self.tune_projector = tune_projector
