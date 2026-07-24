@@ -375,6 +375,36 @@ class TargetedCompileCallback(TrainerCallback):
         print(f"Targeted torch.compile enabled: {label}", flush=True)
         return True
 
+    @staticmethod
+    def _disable_zero3_collectives_for_dynamo():
+        """Keep ZeRO-3 parameter communication eager while compiling compute.
+
+        Targeted compilation happens after DeepSpeed has installed ZeRO-3
+        parameter hooks.  A compiled submodule can therefore reach
+        ``dist.all_gather_into_tensor`` while lazily materializing a parameter.
+        Letting Dynamo trace that collective mixes communication buffers with
+        the module's compute graph and is not shape-stable across parameters.
+        A Dynamo-disabled wrapper creates a graph break around the collective;
+        the all-gather still runs normally, but Inductor sees only the tensor
+        returned by the eager communication path.
+        """
+        dynamo = getattr(torch, "_dynamo", None)
+        distributed = getattr(torch, "distributed", None)
+        if dynamo is None or distributed is None:
+            return
+
+        for name in (
+            "all_gather_into_tensor",
+            "all_gather",
+            "all_gather_coalesced",
+        ):
+            function = getattr(distributed, name, None)
+            if function is None or getattr(function, "_dreamzero_dynamo_disabled", False):
+                continue
+            disabled = dynamo.disable(function)
+            setattr(disabled, "_dreamzero_dynamo_disabled", True)
+            setattr(distributed, name, disabled)
+
     def on_train_begin(self, args, state, control, model=None, **kwargs):
         if self.completed:
             return
@@ -418,6 +448,11 @@ class TargetedCompileCallback(TrainerCallback):
                 f"Targeted torch.compile scope={self.scope} kwargs={compile_kwargs}",
                 flush=True,
             )
+            print(
+                "Targeted torch.compile: keeping ZeRO-3 all-gather collectives eager",
+                flush=True,
+            )
+        self._disable_zero3_collectives_for_dynamo()
         for owner, attribute, label in targets:
             self._compile_forward(owner, attribute, label, compile_kwargs)
         self.completed = True
