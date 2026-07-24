@@ -303,6 +303,7 @@ class EgoVLAWdsDataset(IterableDataset):
         shuffle_initial: int = 32,
         max_samples: int | None = None,
         seed: int = 42,
+        defer_media_decode: bool = False,
     ):
         super().__init__()
         if not 0.0 < keep_ratio <= 1.0:
@@ -320,6 +321,7 @@ class EgoVLAWdsDataset(IterableDataset):
         self.shuffle_initial = min(shuffle_initial, shuffle_buffer)
         self.max_samples = max_samples
         self.seed = seed
+        self.defer_media_decode = defer_media_decode
         self.epoch = 0
         self.transforms = transforms
 
@@ -388,8 +390,9 @@ class EgoVLAWdsDataset(IterableDataset):
             stages.append(wds.shuffle(self.shuffle_buffer, initial=self.shuffle_initial, rng=rng))
         if self.max_samples is not None:
             stages.append(lambda source: itertools.islice(source, self.max_samples))
-        stages.append(wds.map(_materialize_media, handler=wds.warn_and_continue))
-        if apply_transforms and self.transforms is not None:
+        if not self.defer_media_decode:
+            stages.append(wds.map(_materialize_media, handler=wds.warn_and_continue))
+        if apply_transforms and self.transforms is not None and not self.defer_media_decode:
             stages.append(wds.map(self.transforms, handler=wds.warn_and_continue))
         return wds.DataPipeline(*stages)
 

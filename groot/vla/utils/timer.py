@@ -21,7 +21,13 @@ class ContextTimer:
     def __exit__(self, exc_type, exc_value, traceback):
         key = self.key_stack.pop()  # Pop key from stack
         diff = time.time() - self.start_times[key]
-        self.trainer.log({f"{key}_time": diff})
+        # Trainer.log on every micro-step is surprisingly expensive with W&B,
+        # especially when gradient accumulation is enabled.  Let the trainer
+        # aggregate timings and emit one window-level record instead.
+        if hasattr(self.trainer, "record_timing"):
+            self.trainer.record_timing(key, diff)
+        else:
+            self.trainer.log({f"{key}_time": diff})
         # print(f"{key}: {diff:.2f} seconds")
 
 

@@ -178,7 +178,10 @@ def collate(features: List[dict], tokenizer: AutoTokenizer, num_views=3, embodim
             batch['text_attention_mask_negative'] = mask
         else:
             values = [elem[key] for elem in features]
-            batch[key] = torch.from_numpy(np.stack(values))
+            if all(isinstance(value, torch.Tensor) for value in values):
+                batch[key] = torch.stack(values)
+            else:
+                batch[key] = torch.from_numpy(np.stack(values))
     return batch
 
 
@@ -352,11 +355,22 @@ class DreamTransform(InvertibleModalityTransform):
                 right_exterior = images[1]  # (t, c, h, w)
                 wrist_image = images[2]     # (t, c, h, w)
 
-                concat_images = np.zeros((1, t, c, 2 * h, 2 * w), dtype=images.dtype)
+                if isinstance(images, torch.Tensor):
+                    concat_images = torch.zeros(
+                        (1, t, c, 2 * h, 2 * w),
+                        dtype=images.dtype,
+                        device=images.device,
+                    )
+                else:
+                    concat_images = np.zeros((1, t, c, 2 * h, 2 * w), dtype=images.dtype)
 
                 # Top row: a SINGLE wrist view, resized to be 2x wider (same height).
                 # We use nearest-neighbor upscaling by repeating pixels along width.
-                wrist_wide = np.repeat(wrist_image, 2, axis=-1)  # (t, c, h, 2w)
+                wrist_wide = (
+                    torch.repeat_interleave(wrist_image, 2, dim=-1)
+                    if isinstance(images, torch.Tensor)
+                    else np.repeat(wrist_image, 2, axis=-1)
+                )  # (t, c, h, 2w)
                 concat_images[0, :, :, :h, :] = wrist_wide
 
                 # # Bottom row: left/right exteriors.
@@ -377,7 +391,14 @@ class DreamTransform(InvertibleModalityTransform):
             #         [left, black]
             
             # Create output tensor with doubled height and width
-            concat_images = np.zeros((1, t, c, 2*h, 2*w), dtype=images.dtype)
+            if isinstance(images, torch.Tensor):
+                concat_images = torch.zeros(
+                    (1, t, c, 2 * h, 2 * w),
+                    dtype=images.dtype,
+                    device=images.device,
+                )
+            else:
+                concat_images = np.zeros((1, t, c, 2*h, 2*w), dtype=images.dtype)
             
             # Place images in the 2x2 grid
             # Left upper: head image (view 0)
@@ -525,7 +546,10 @@ class DreamTransform(InvertibleModalityTransform):
 
         # 1) Prepare video and language with vlm processing.
         images = self._prepare_video(data)
-        images = images.astype(np.uint8)
+        if isinstance(images, torch.Tensor):
+            images = images.to(dtype=torch.uint8)
+        else:
+            images = images.astype(np.uint8)
         language, is_lapa_instance, is_dream_instance, is_cotrain_instance = self._prepare_language(data)
         batch_data = {"images": images, "language": language}
         vlm_outputs = self._apply_vlm_processing(batch_data)

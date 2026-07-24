@@ -66,6 +66,7 @@ train_dataset:
   shuffle_buffer: ${wds_shuffle_buffer}
   shuffle_initial: ${wds_shuffle_initial}
   seed: ${seed}
+  defer_media_decode: ${nvimgcodec_decode}
 
 val_dataset:
   _target_: groot.vla.data.dataset.egovla_wds.EgoVLAWdsDataset

@@ -33,6 +33,16 @@ trainer:
   profile_record_shapes: false                # record tensor shapes (adds overhead)
   profile_with_stack: false                   # record Python stack traces
   profile_memory: false                       # record memory allocation
+  profile_with_flops: true                    # estimate matmul/conv FLOPs in the trace
+  profile_ranks: [0]                          # one representative rank by default
+  profile_upload_wandb: true                  # upload trace + summaries as a W&B artifact
+  performance_enabled: ${performance_enabled}
+  performance_log_steps: ${performance_log_steps}
+  performance_norm_steps: ${performance_norm_steps}
+  performance_peak_tflops: ${performance_peak_tflops}
+  performance_flop_factor: ${performance_flop_factor}
+  performance_checkpoint_flop_factor: ${performance_checkpoint_flop_factor}
+  performance_tokens_per_sample: ${performance_tokens_per_sample}
 
 # === Training Arguments ===
 
@@ -54,6 +64,9 @@ gradient_accumulation_steps: 1
 dataloader_num_workers: 10
 dataloader_pin_memory: true
 dataloader_persistent_workers: true
+dataloader_prefetch_factor: 2
+dataloader_non_blocking: false
+nvimgcodec_decode: false
 optim: adamw_torch
 learning_rate: 1e-4
 adam_beta1: 0.95
@@ -78,7 +91,18 @@ ddp_find_unused_parameters: false
 ddp_bucket_cap_mb: 100
 ray_num_workers: ???
 eval_bf16: true
+torch_compile: false
+torch_compile_backend: inductor
 torch_compile_mode: null
+
+# === Low-overhead W&B performance telemetry ===
+performance_enabled: true
+performance_log_steps: 10
+performance_norm_steps: 50
+performance_peak_tflops: 312.0
+performance_flop_factor: 6.0
+performance_checkpoint_flop_factor: 2.0
+performance_tokens_per_sample: 0
 
 pretrained_model_path: null
 only_tune_projectors: false
@@ -105,6 +129,9 @@ training_args:
   dataloader_num_workers: ${dataloader_num_workers}
   dataloader_pin_memory: ${dataloader_pin_memory}
   dataloader_persistent_workers: ${dataloader_persistent_workers}
+  dataloader_prefetch_factor: ${dataloader_prefetch_factor}
+  accelerator_config:
+    non_blocking: ${dataloader_non_blocking}
   optim: ${optim}
   adam_beta1: ${adam_beta1}
   adam_beta2: ${adam_beta2}
@@ -126,6 +153,8 @@ training_args:
   eval_steps: ${eval_steps}
   ddp_find_unused_parameters: ${ddp_find_unused_parameters}
   ddp_bucket_cap_mb: ${ddp_bucket_cap_mb}
+  torch_compile: ${torch_compile}
+  torch_compile_backend: ${torch_compile_backend}
   torch_compile_mode: ${torch_compile_mode}
 
 # === Profiling Arguments ===

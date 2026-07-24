@@ -538,6 +538,31 @@ class VideoToTensor(VideoTransform):
         description="Output the tensor on CUDA if True.",
     )
 
+    def check_input(self, data: dict):
+        """Accept CPU numpy frames or HWC uint8 tensors from nvImageCodec."""
+        for key in self.apply_to:
+            assert key in data, f"Key {key} not found in data. Available keys: {data.keys()}"
+            value = data[key]
+            assert isinstance(value, (np.ndarray, torch.Tensor)), (
+                f"Video {key} must be a numpy array or torch tensor"
+            )
+            assert value.ndim in [4, 5], (
+                f"Video {key} must have 4 or 5 dimensions, got {value.ndim}"
+            )
+            assert value.shape[-1] == 3, (
+                f"Video {key} must be HWC before VideoToTensor, got shape {value.shape}"
+            )
+            expected_dtype = torch.uint8 if isinstance(value, torch.Tensor) else np.uint8
+            assert value.dtype == expected_dtype, (
+                f"Video {key} must be uint8, got {value.dtype}"
+            )
+            input_resolution = value.shape[-3:-1][::-1]
+            expected_resolution = self.original_resolutions.get(key, input_resolution)
+            assert input_resolution == expected_resolution, (
+                f"Video {key} has invalid resolution {input_resolution}, "
+                f"expected {expected_resolution}. Full shape: {value.shape}"
+            )
+
     def get_transform(self, mode: Literal["train", "eval"] = "train") -> Callable:
         """Get the to tensor transform. Same transform for both train and eval.
 
@@ -555,30 +580,8 @@ class VideoToTensor(VideoTransform):
         else:
             raise ValueError(f"Backend {self.backend} not supported")
 
-    def check_input(self, data: dict):
-        """Check if the input data has the correct shape.
-        Expected video shape: [T, H, W, C], dtype np.uint8
-        """
-        for key in self.apply_to:
-            assert key in data, f"Key {key} not found in data. Available keys: {data.keys()}"
-            assert data[key].ndim in [
-                4,
-                5,
-            ], f"Video {key} must have 4 or 5 dimensions, got {data[key].ndim}"
-            assert (
-                data[key].dtype == np.uint8
-            ), f"Video {key} must have dtype uint8, got {data[key].dtype}"
-            input_resolution = data[key].shape[-3:-1][::-1]
-            if key in self.original_resolutions:
-                expected_resolution = self.original_resolutions[key]
-            else:
-                expected_resolution = input_resolution
-            assert (
-                input_resolution == expected_resolution
-            ), f"Video {key} has invalid resolution {input_resolution}, expected {expected_resolution}. Full shape: {data[key].shape}"
-
     @staticmethod
-    def to_tensor(frames: np.ndarray, output_on_cuda: bool) -> torch.Tensor:
+    def to_tensor(frames: np.ndarray | torch.Tensor, output_on_cuda: bool) -> torch.Tensor:
         """Convert numpy array to tensor efficiently.
 
         Args:
@@ -587,14 +590,22 @@ class VideoToTensor(VideoTransform):
         Returns:
             tensor of shape [T, C, H, W] in range [0, 1]
         """
-        frames = torch.from_numpy(frames)
-        if output_on_cuda:
+        if isinstance(frames, np.ndarray):
+            frames = torch.from_numpy(frames)
+        elif not isinstance(frames, torch.Tensor):
+            raise TypeError(f"Expected numpy array or torch tensor, got {type(frames)}")
+        if output_on_cuda and frames.device.type != "cuda":
             frames = frames.cuda()
         frames = frames.to(torch.float32) / 255.0
         return frames.permute(0, 3, 1, 2)  # [T, C, H, W]
 
 
 class VideoToNumpy(VideoTransform):
+    keep_on_device: bool = Field(
+        default=False,
+        description="Keep the converted HWC uint8 tensor on its current device.",
+    )
+
     def get_transform(self, mode: Literal["train", "eval"] = "train") -> Callable:
         """Get the to numpy transform. Same transform for both train and eval.
 
@@ -605,12 +616,18 @@ class VideoToNumpy(VideoTransform):
             Callable: The to numpy transform.
         """
         if self.backend == "torchvision":
-            return self.__class__.to_numpy
+            return functools.partial(
+                self.__class__.to_numpy,
+                keep_on_device=self.keep_on_device,
+            )
         else:
             raise ValueError(f"Backend {self.backend} not supported")
 
     @staticmethod
-    def to_numpy(frames: torch.Tensor) -> np.ndarray:
+    def to_numpy(
+        frames: torch.Tensor,
+        keep_on_device: bool = False,
+    ) -> np.ndarray | torch.Tensor:
         """Convert tensor back to numpy array efficiently.
 
         Args:
@@ -619,6 +636,8 @@ class VideoToNumpy(VideoTransform):
             numpy array of shape [T, H, W, C] in uint8 format
         """
         frames = (frames.permute(0, 2, 3, 1) * 255).to(torch.uint8)
+        if keep_on_device:
+            return frames
         return frames.cpu().numpy()
 
 

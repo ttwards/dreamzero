@@ -23,14 +23,38 @@ if [ -z "$GPUS_PER_NODE" ]; then
     GPUS_PER_NODE="$(nvidia-smi -L | wc -l | tr -d ' ')"
 fi
 
-if [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
+LOCAL_RUNTIME_DIR="${DREAMZERO_RUNTIME_DIR:-/opt/dreamzero-runtime}"
+if [[ -d "$LOCAL_RUNTIME_DIR/train-site" &&
+      -d "$LOCAL_RUNTIME_DIR/torch-site" &&
+      -d "$LOCAL_RUNTIME_DIR/local-site" ]]; then
+    # Volcano workers are cloned from the development image. Keep the large
+    # Python packages on the image's local disk instead of importing them from
+    # EFS. Ignore a generic inherited PYTHON_BIN here: some cloud images set it
+    # to a bare Conda interpreter that does not contain torch.
+    DEFAULT_PYTHON_BIN=/root/miniconda3/bin/python3
+    PYTHON_BIN="${DREAMZERO_PYTHON_BIN:-$DEFAULT_PYTHON_BIN}"
+    export PYTHONPATH="$LOCAL_RUNTIME_DIR/train-site:$LOCAL_RUNTIME_DIR/torch-site:$LOCAL_RUNTIME_DIR/local-site:${PYTHONPATH:-}"
+    export LD_LIBRARY_PATH="$LOCAL_RUNTIME_DIR/torch-site/nvidia/nccl/lib:$LOCAL_RUNTIME_DIR/torch-site/nvidia/cusparselt/lib:$LOCAL_RUNTIME_DIR/local-site/nvidia/nvjpeg/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+elif [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
     DEFAULT_PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
-elif [ -x /usr/bin/python3.11 ]; then
-    DEFAULT_PYTHON_BIN=/usr/bin/python3.11
+    PYTHON_BIN="${DREAMZERO_PYTHON_BIN:-${PYTHON_BIN:-$DEFAULT_PYTHON_BIN}}"
 else
-    DEFAULT_PYTHON_BIN="$(command -v python3)"
+    echo "Missing local DreamZero runtime: $LOCAL_RUNTIME_DIR" >&2
+    echo "The worker image must contain the runtime installed on the development machine." >&2
+    exit 2
 fi
-PYTHON_BIN="${PYTHON_BIN:-$DEFAULT_PYTHON_BIN}"
+
+if [ ! -x "$PYTHON_BIN" ]; then
+    echo "Python interpreter is not executable: $PYTHON_BIN" >&2
+    exit 2
+fi
+
+if ! "$PYTHON_BIN" -c \
+    'import torch, torchvision, transformers, accelerate, deepspeed, wandb; from nvidia import nvimgcodec'; then
+    echo "DreamZero training dependency preflight failed with: $PYTHON_BIN" >&2
+    echo "runtime=$LOCAL_RUNTIME_DIR" >&2
+    exit 2
+fi
 
 WDS_SHARDS="${WDS_SHARDS:-}"
 VAL_WDS_SHARDS="${VAL_WDS_SHARDS:-}"
@@ -39,10 +63,35 @@ OUTPUT_DIR="${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_ego
 WAN_CKPT_DIR="${WAN_CKPT_DIR:-/efs-exp/agent-workspace/xuwenxi/checkpoints/Wan2.1-I2V-14B-480P}"
 TOKENIZER_DIR="${TOKENIZER_DIR:-/efs-exp/agent-workspace/xuwenxi/checkpoints/umt5-xxl}"
 DREAMZERO_CKPT_DIR="${DREAMZERO_CKPT_DIR:-/efs-exp/agent-workspace/xuwenxi/checkpoints/DreamZero-AgiBot}"
-GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-64}"
-MAX_STEPS="${MAX_STEPS:-5000}"
+GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-128}"
+MAX_STEPS="${MAX_STEPS:-100000}"
 REPORT_TO="${REPORT_TO:-wandb}"
 WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
+TRAIN_ARCHITECTURE="${TRAIN_ARCHITECTURE:-full}"
+SAVE_LORA_ONLY="${SAVE_LORA_ONLY:-false}"
+DEEPSPEED_CONFIG="${DEEPSPEED_CONFIG:-groot/vla/configs/deepspeed/zero2_offload.json}"
+TEACHER_FORCING_ATTN_BACKEND="${TEACHER_FORCING_ATTN_BACKEND:-fragmented}"
+TORCH_COMPILE="${TORCH_COMPILE:-false}"
+TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
+TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
+TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
+TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
+TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
+TORCH_PROFILE="${TORCH_PROFILE:-false}"
+PROFILE_START_STEP="${PROFILE_START_STEP:-50}"
+PROFILE_WARMUP_STEPS="${PROFILE_WARMUP_STEPS:-1}"
+PROFILE_ACTIVE_STEPS="${PROFILE_ACTIVE_STEPS:-2}"
+PROFILE_RANKS="${PROFILE_RANKS:-0}"
+PROFILE_UPLOAD_WANDB="${PROFILE_UPLOAD_WANDB:-true}"
+PROFILE_DIR="${PROFILE_DIR:-/tmp/dreamzero-profiler/${OUTPUT_DIR##*/}}"
+
+if [[ "$TEACHER_FORCING_ATTN_BACKEND" == "flex" ]] && \
+   ! "$PYTHON_BIN" -c \
+       'import jinja2; from torch.nn.attention.flex_attention import flex_attention, create_block_mask'; then
+    echo "FlexAttention preflight failed with: $PYTHON_BIN" >&2
+    echo "Install jinja2 in the local DreamZero runtime or set TEACHER_FORCING_ATTN_BACKEND=fragmented." >&2
+    exit 2
+fi
 
 if [ "$REPORT_TO" = "wandb" ]; then
     : "${WANDB_API_KEY:?Set WANDB_API_KEY=... when launching the Volcano job}"
@@ -59,6 +108,10 @@ for required_dir in "$WAN_CKPT_DIR" "$TOKENIZER_DIR" "$DREAMZERO_CKPT_DIR"; do
         exit 2
     fi
 done
+if [ ! -f "$DEEPSPEED_CONFIG" ]; then
+    echo "Missing DeepSpeed config: $DEEPSPEED_CONFIG" >&2
+    exit 2
+fi
 required_files=(
     "$WAN_CKPT_DIR/models_t5_umt5-xxl-enc-bf16.pth"
     "$WAN_CKPT_DIR/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"
@@ -75,6 +128,7 @@ done
 
 export PYTHON_BIN
 export PYTHONPATH="$PROJECT_DIR:${PYTHONPATH:-}"
+export PYTHONNOUSERSITE=1
 export HYDRA_FULL_ERROR=1
 export NCCL_SOCKET_FAMILY=AF_INET
 export GLOO_SOCKET_IFNAME="$RDMA_IFNAME"
@@ -90,6 +144,15 @@ export TOKENIZERS_PARALLELISM=false
 export NO_ALBUMENTATIONS_UPDATE=1
 export PYTHONUNBUFFERED=1
 export WANDB_PROJECT
+if [ "$TORCH_COMPILE" = "true" ]; then
+    # TrainingArguments configures the backend/mode. These two Accelerate
+    # options control the remaining torch.compile arguments before
+    # DeepSpeedEngine.compile() wraps the complete VLA model.
+    export ACCELERATE_DYNAMO_USE_DYNAMIC="$TORCH_COMPILE_DYNAMIC"
+    export ACCELERATE_DYNAMO_USE_FULLGRAPH="$TORCH_COMPILE_FULLGRAPH"
+    export TORCHINDUCTOR_CACHE_DIR
+    mkdir -p "$TORCHINDUCTOR_CACHE_DIR"
+fi
 
 TRAIN_COMMAND=(
     groot/vla/experiment/experiment.py
@@ -99,12 +162,13 @@ TRAIN_COMMAND=(
     model=dreamzero/vla
     model/dreamzero/action_head=wan_flow_matching_action_tf
     model/dreamzero/transform=dreamzero_cotrain
-    train_architecture=lora
+    "train_architecture=$TRAIN_ARCHITECTURE"
     num_frames=33
     action_horizon=24
     num_frame_per_block=2
     num_action_per_block=24
     num_state_per_block=1
+    "teacher_forcing_attn_backend=$TEACHER_FORCING_ATTN_BACKEND"
     num_views=2
     max_state_dim=64
     max_action_dim=48
@@ -132,22 +196,47 @@ TRAIN_COMMAND=(
     bf16=true
     tf32=true
     eval_bf16=true
+    "torch_compile=$TORCH_COMPILE"
+    "torch_compile_backend=$TORCH_COMPILE_BACKEND"
+    "torch_compile_mode=$TORCH_COMPILE_MODE"
     do_eval=true
     eval_strategy=steps
     eval_steps=500
     per_device_eval_batch_size=1
     dataloader_num_workers=4
-    dataloader_pin_memory=false
+    dataloader_pin_memory=true
     dataloader_persistent_workers=true
+    dataloader_prefetch_factor=2
+    dataloader_non_blocking=true
+    "nvimgcodec_decode=${NVIMGCODEC_DECODE:-false}"
     save_strategy=steps
     save_steps=500
     save_total_limit=10
-    save_lora_only=true
+    "save_lora_only=$SAVE_LORA_ONLY"
     upload_checkpoints=false
-    training_args.deepspeed=groot/vla/configs/deepspeed/zero2.json
+    "training_args.deepspeed=$DEEPSPEED_CONFIG"
     ++action_head_cfg.config.skip_component_loading=true
-    ++action_head_cfg.config.defer_lora_injection=true
 )
+
+if [ "$TRAIN_ARCHITECTURE" = "lora" ]; then
+    TRAIN_COMMAND+=("++action_head_cfg.config.defer_lora_injection=true")
+fi
+
+if [ "$TORCH_PROFILE" = "true" ]; then
+    TRAIN_COMMAND+=(
+        trainer.enable_prof_callback=true
+        "trainer.profile_start_step=$PROFILE_START_STEP"
+        "trainer.profile_warmup_steps=$PROFILE_WARMUP_STEPS"
+        "trainer.profile_active_steps=$PROFILE_ACTIVE_STEPS"
+        "trainer.profile_ranks=[$PROFILE_RANKS]"
+        trainer.profile_record_shapes=false
+        trainer.profile_with_stack=false
+        trainer.profile_memory=false
+        trainer.profile_with_flops=true
+        "trainer.profile_upload_wandb=$PROFILE_UPLOAD_WANDB"
+        "profile_dir=$PROFILE_DIR"
+    )
+fi
 
 if [ -n "$WDS_SHARDS" ]; then
     TRAIN_COMMAND+=("egovla_wds_shards=$WDS_SHARDS")
@@ -167,6 +256,18 @@ echo "train shards=${WDS_SHARDS:-<config defaults>}"
 echo "val shards=${VAL_WDS_SHARDS:-<config defaults>}"
 echo "metadata=$WDS_METADATA"
 echo "output=$OUTPUT_DIR"
+echo "python=$PYTHON_BIN"
+echo "runtime=$LOCAL_RUNTIME_DIR"
+echo "deepspeed config=$DEEPSPEED_CONFIG"
+echo "teacher-forcing attention=$TEACHER_FORCING_ATTN_BACKEND"
+echo "torch compile=$TORCH_COMPILE backend=$TORCH_COMPILE_BACKEND mode=$TORCH_COMPILE_MODE dynamic=$TORCH_COMPILE_DYNAMIC fullgraph=$TORCH_COMPILE_FULLGRAPH"
+if [ "$TORCH_COMPILE" = "true" ]; then
+    echo "torch inductor cache=$TORCHINDUCTOR_CACHE_DIR"
+fi
+echo "torch profiler=$TORCH_PROFILE"
+if [ "$TORCH_PROFILE" = "true" ]; then
+    echo "profile window=start:$PROFILE_START_STEP warmup:$PROFILE_WARMUP_STEPS active:$PROFILE_ACTIVE_STEPS ranks:[$PROFILE_RANKS]"
+fi
 
 exec "$PYTHON_BIN" -m torch.distributed.run \
     --nnodes="$NNODES" \

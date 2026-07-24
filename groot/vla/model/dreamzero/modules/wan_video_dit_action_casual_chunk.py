@@ -14,8 +14,12 @@ from groot.vla.model.dreamzero.modules.wan2_1_submodule import (
     MLPProj,
     sinusoidal_embedding_1d
 )
-from torch.nn.attention.flex_attention import create_block_mask, create_mask
-from torch.nn.attention.flex_attention import BlockMask
+from torch.nn.attention.flex_attention import (
+    BlockMask,
+    create_block_mask,
+    create_mask,
+    flex_attention,
+)
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 import torch.nn as nn
@@ -26,6 +30,200 @@ import torch.distributed as dist
 import os
 
 ENABLE_TENSORRT = os.getenv("ENABLE_TENSORRT", "False").lower() == "true"
+
+_COMPILED_FLEX_ATTENTION: Any | None = None
+_TEACHER_FORCING_BLOCK_MASK_CACHE: dict[tuple[Any, ...], BlockMask] = {}
+
+
+def _get_compiled_flex_attention():
+    """Return one lazily compiled FlexAttention callable per process."""
+    global _COMPILED_FLEX_ATTENTION
+    if _COMPILED_FLEX_ATTENTION is None:
+        _COMPILED_FLEX_ATTENTION = torch.compile(
+            flex_attention,
+            dynamic=False,
+        )
+    return _COMPILED_FLEX_ATTENTION
+
+
+def _get_teacher_forcing_block_mask(
+    *,
+    device: torch.device,
+    clean_frames: int,
+    frame_seqlen: int,
+    num_frame_per_block: int,
+    local_attn_size: int,
+    action_horizon: int,
+    state_horizon: int,
+    num_action_per_block: int,
+    num_state_per_block: int,
+) -> BlockMask:
+    """Build and cache the exact mask used by fragmented teacher forcing."""
+    if local_attn_size == -1:
+        raise ValueError(
+            "FlexAttention teacher forcing currently requires a finite "
+            "local_attn_size so it can exactly match the fragmented path."
+        )
+
+    num_blocks, remainder = divmod(clean_frames - 1, num_frame_per_block)
+    if remainder != 0:
+        raise ValueError(
+            f"clean_frames={clean_frames} is incompatible with "
+            f"num_frame_per_block={num_frame_per_block}"
+        )
+    if action_horizon != num_blocks * num_action_per_block:
+        raise ValueError(
+            f"action_horizon={action_horizon} does not match "
+            f"{num_blocks} blocks x {num_action_per_block}"
+        )
+    if state_horizon != num_blocks * num_state_per_block:
+        raise ValueError(
+            f"state_horizon={state_horizon} does not match "
+            f"{num_blocks} blocks x {num_state_per_block}"
+        )
+
+    cache_key = (
+        device.type,
+        device.index,
+        clean_frames,
+        frame_seqlen,
+        num_frame_per_block,
+        local_attn_size,
+        action_horizon,
+        state_horizon,
+        num_action_per_block,
+        num_state_per_block,
+    )
+    cached = _TEACHER_FORCING_BLOCK_MASK_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    image_block_size = frame_seqlen * num_frame_per_block
+    clean_length = clean_frames * frame_seqlen
+    noisy_image_start = clean_length
+    action_start = clean_length * 2
+    state_start = action_start + action_horizon
+    total_length = state_start + state_horizon
+
+    def teacher_forcing_mask(b, h, q_idx, kv_idx):
+        del b, h
+
+        # Clean first-frame queries attend to the complete clean first frame.
+        q_is_clean_first = q_idx < frame_seqlen
+        kv_is_clean_first = kv_idx < frame_seqlen
+
+        # Each later clean block attends to the first frame and its finite
+        # temporal window, matching _process_clean_image_only.
+        q_is_clean_block = (q_idx >= frame_seqlen) & (q_idx < clean_length)
+        clean_block_idx = (q_idx - frame_seqlen) // image_block_size
+        clean_block_end = (
+            frame_seqlen + (clean_block_idx + 1) * image_block_size
+        )
+        clean_window_start = torch.clamp(
+            clean_block_end - local_attn_size * frame_seqlen,
+            min=frame_seqlen,
+        )
+        clean_block_visible = kv_is_clean_first | (
+            (kv_idx >= clean_window_start) & (kv_idx < clean_block_end)
+        )
+
+        # The first noisy frame is an independent conditioning frame.
+        q_is_noisy_first = (
+            (q_idx >= noisy_image_start)
+            & (q_idx < noisy_image_start + frame_seqlen)
+        )
+        kv_is_noisy_first = (
+            (kv_idx >= noisy_image_start)
+            & (kv_idx < noisy_image_start + frame_seqlen)
+        )
+
+        # Noisy-image and action queries in block i share exactly the same
+        # clean prefix + current noisy/action/state block context.
+        q_is_noisy_block = (
+            (q_idx >= noisy_image_start + frame_seqlen)
+            & (q_idx < action_start)
+        )
+        noisy_block_idx = (
+            q_idx - (noisy_image_start + frame_seqlen)
+        ) // image_block_size
+        q_is_action = (q_idx >= action_start) & (q_idx < state_start)
+        action_block_idx = (q_idx - action_start) // num_action_per_block
+        active_block_idx = torch.where(
+            q_is_noisy_block,
+            noisy_block_idx,
+            action_block_idx,
+        )
+
+        clean_prefix_end = frame_seqlen + active_block_idx * image_block_size
+        noisy_block_start = (
+            noisy_image_start
+            + frame_seqlen
+            + active_block_idx * image_block_size
+        )
+        noisy_block_end = noisy_block_start + image_block_size
+        action_block_start = (
+            action_start + active_block_idx * num_action_per_block
+        )
+        action_block_end = action_block_start + num_action_per_block
+        state_block_start = (
+            state_start + active_block_idx * num_state_per_block
+        )
+        state_block_end = state_block_start + num_state_per_block
+        active_block_visible = (
+            (kv_idx < clean_prefix_end)
+            | (
+                (kv_idx >= noisy_block_start)
+                & (kv_idx < noisy_block_end)
+            )
+            | (
+                (kv_idx >= action_block_start)
+                & (kv_idx < action_block_end)
+            )
+            | (
+                (kv_idx >= state_block_start)
+                & (kv_idx < state_block_end)
+            )
+        )
+
+        # State blocks remain independent conditioning blocks.
+        q_is_state = (q_idx >= state_start) & (q_idx < total_length)
+        state_query_block_idx = (
+            q_idx - state_start
+        ) // num_state_per_block
+        own_state_start = (
+            state_start + state_query_block_idx * num_state_per_block
+        )
+        own_state_end = own_state_start + num_state_per_block
+        own_state_visible = (
+            (kv_idx >= own_state_start) & (kv_idx < own_state_end)
+        )
+
+        return (
+            (q_is_clean_first & kv_is_clean_first)
+            | (q_is_clean_block & clean_block_visible)
+            | (q_is_noisy_first & kv_is_noisy_first)
+            | ((q_is_noisy_block | q_is_action) & active_block_visible)
+            | (q_is_state & own_state_visible)
+        )
+
+    block_mask = create_block_mask(
+        teacher_forcing_mask,
+        B=None,
+        H=None,
+        Q_LEN=total_length,
+        KV_LEN=total_length,
+        device=device,
+        _compile=True,
+    )
+    _TEACHER_FORCING_BLOCK_MASK_CACHE[cache_key] = block_mask
+
+    if not dist.is_initialized() or dist.get_rank() == 0:
+        print(
+            "Created teacher-forcing FlexAttention mask: "
+            f"tokens={total_length}, blocks={num_blocks}, "
+            f"sparsity={block_mask.sparsity():.2f}%"
+        )
+    return block_mask
 
 
 class CategorySpecificLinear(nn.Module):
@@ -197,9 +395,20 @@ class CausalWanSelfAttention(nn.Module):
                  qk_norm=True,
                  eps=1e-6,
                  num_action_per_block=32,
-                 num_state_per_block=1):
+                 num_state_per_block=1,
+                 teacher_forcing_attn_backend="fragmented"):
         assert dim % num_heads == 0
         super().__init__()
+        if teacher_forcing_attn_backend not in {
+            "fragmented",
+            "grouped",
+            "flex",
+        }:
+            raise ValueError(
+                "teacher_forcing_attn_backend must be 'fragmented', "
+                "'grouped', or 'flex', "
+                f"got {teacher_forcing_attn_backend!r}"
+            )
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
@@ -212,6 +421,7 @@ class CausalWanSelfAttention(nn.Module):
         self.frame_seqlen = frame_seqlen
         self.num_action_per_block = num_action_per_block
         self.num_state_per_block = num_state_per_block
+        self.teacher_forcing_attn_backend = teacher_forcing_attn_backend
         # layers
         self.q = nn.Linear(dim, dim)
         self.k = nn.Linear(dim, dim)
@@ -552,7 +762,65 @@ class CausalWanSelfAttention(nn.Module):
         
         return output
 
-    def _process_clean_image_only(self, clean_image_q, clean_image_k, clean_image_v, clean_frames):
+    def _process_teacher_forcing_flex(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        *,
+        clean_frames: int,
+        action_horizon: int,
+        state_horizon: int,
+    ) -> torch.Tensor:
+        """Run the fragmented teacher-forcing pattern as one FlexAttention call."""
+        expected_image_length = clean_frames * self.frame_seqlen
+        expected_length = (
+            expected_image_length * 2 + action_horizon + state_horizon
+        )
+        if q.shape[1] != expected_length:
+            raise ValueError(
+                f"Teacher-forcing sequence has {q.shape[1]} tokens, expected "
+                f"{expected_length} from clean_frames={clean_frames}, "
+                f"action_horizon={action_horizon}, state_horizon={state_horizon}"
+            )
+        if k.shape != q.shape or v.shape != q.shape:
+            raise ValueError(
+                "FlexAttention teacher forcing requires q, k, and v to have "
+                f"the same shape; got q={q.shape}, k={k.shape}, v={v.shape}"
+            )
+
+        block_mask = _get_teacher_forcing_block_mask(
+            device=q.device,
+            clean_frames=clean_frames,
+            frame_seqlen=self.frame_seqlen,
+            num_frame_per_block=self.num_frame_per_block,
+            local_attn_size=self.local_attn_size,
+            action_horizon=action_horizon,
+            state_horizon=state_horizon,
+            num_action_per_block=self.num_action_per_block,
+            num_state_per_block=self.num_state_per_block,
+        )
+
+        out_dtype = q.dtype
+        q_flex = q.transpose(1, 2).to(torch.bfloat16)
+        k_flex = k.transpose(1, 2).to(torch.bfloat16)
+        v_flex = v.transpose(1, 2).to(torch.bfloat16)
+        output = _get_compiled_flex_attention()(
+            q_flex,
+            k_flex,
+            v_flex,
+            block_mask=block_mask,
+        )
+        return output.transpose(1, 2).contiguous().to(out_dtype)
+
+    def _process_clean_image_only(
+        self,
+        clean_image_q,
+        clean_image_k,
+        clean_image_v,
+        clean_frames,
+        reuse_contiguous_prefix=False,
+    ):
         """Process clean image blocks with causal attention pattern - OPTIMIZED
         
         First frame: conditioning, cannot attend to anything (self-attention only)
@@ -610,18 +878,65 @@ class CausalWanSelfAttention(nn.Module):
                 
                 # Context: first frame + recent blocks within local_attn_size
                 image_kv_start = max(self.frame_seqlen, block_end - self.local_attn_size * self.frame_seqlen)
-                k_context = torch.cat([
-                    clean_image_k[:, :self.frame_seqlen],  # First frame
-                    clean_image_k[:, image_kv_start:block_end]  # Recent blocks + current
-                ], dim=1)
-                v_context = torch.cat([
-                    clean_image_v[:, :self.frame_seqlen],
-                    clean_image_v[:, image_kv_start:block_end]
-                ], dim=1)
+                if (
+                    reuse_contiguous_prefix
+                    and image_kv_start == self.frame_seqlen
+                ):
+                    # These slices form one contiguous prefix. Avoid allocating
+                    # a copy solely to concatenate adjacent regions.
+                    k_context = clean_image_k[:, :block_end]
+                    v_context = clean_image_v[:, :block_end]
+                else:
+                    k_context = torch.cat([
+                        clean_image_k[:, :self.frame_seqlen],
+                        clean_image_k[:, image_kv_start:block_end],
+                    ], dim=1)
+                    v_context = torch.cat([
+                        clean_image_v[:, :self.frame_seqlen],
+                        clean_image_v[:, image_kv_start:block_end],
+                    ], dim=1)
                 
                 output[:, block_start:block_end] = self.attn(q_block, k_context, v_context)
         
         return output
+
+    def _process_state_blocks_grouped(
+        self,
+        state_q,
+        state_k,
+        state_v,
+        state_horizon,
+    ):
+        """Batch independent state blocks into one SDPA call."""
+        num_blocks = state_horizon // self.num_state_per_block
+        if num_blocks <= 1:
+            return self._process_state_blocks(
+                state_q,
+                state_k,
+                state_v,
+                state_horizon,
+            )
+
+        batch_size, total_length, num_heads, head_dim = state_q.shape
+        expected_length = num_blocks * self.num_state_per_block
+        if total_length != expected_length:
+            raise ValueError(
+                f"State sequence has {total_length} tokens, expected "
+                f"{expected_length} for {num_blocks} blocks"
+            )
+
+        grouped_shape = (
+            batch_size * num_blocks,
+            self.num_state_per_block,
+            num_heads,
+            head_dim,
+        )
+        grouped_output = self.attn(
+            state_q.reshape(grouped_shape),
+            state_k.reshape(grouped_shape),
+            state_v.reshape(grouped_shape),
+        )
+        return grouped_output.reshape_as(state_q)
     
     def _process_state_blocks(self, state_q, state_k, state_v, state_horizon):
         """Process state blocks: self-attention only - OPTIMIZED
@@ -783,6 +1098,97 @@ class CausalWanSelfAttention(nn.Module):
         
         return output
 
+    def _process_noisy_image_action_blocks_grouped(
+        self,
+        noisy_image_q,
+        noisy_image_k,
+        noisy_image_v,
+        noisy_action_q,
+        noisy_action_k,
+        noisy_action_v,
+        clean_image_k,
+        clean_image_v,
+        noisy_state_k,
+        noisy_state_v,
+        half_frames,
+        action_horizon,
+        state_horizon,
+    ):
+        """Group image/action queries that share the same per-block K/V."""
+        block_size = self.frame_seqlen * self.num_frame_per_block
+        num_blocks = (half_frames - 1) // self.num_frame_per_block
+        noisy_image_output = torch.empty_like(noisy_image_q)
+        noisy_action_output = torch.empty_like(noisy_action_q)
+
+        noisy_image_output[:, :self.frame_seqlen] = self.attn(
+            noisy_image_q[:, :self.frame_seqlen],
+            noisy_image_k[:, :self.frame_seqlen],
+            noisy_image_v[:, :self.frame_seqlen],
+        )
+        if num_blocks == 0:
+            return noisy_image_output, noisy_action_output
+
+        expected_action_horizon = num_blocks * self.num_action_per_block
+        expected_state_horizon = num_blocks * self.num_state_per_block
+        if action_horizon != expected_action_horizon:
+            raise ValueError(
+                f"action_horizon={action_horizon}, expected "
+                f"{expected_action_horizon}"
+            )
+        if state_horizon != expected_state_horizon:
+            raise ValueError(
+                f"state_horizon={state_horizon}, expected "
+                f"{expected_state_horizon}"
+            )
+
+        for block_idx in range(num_blocks):
+            clean_end = self.frame_seqlen + block_idx * block_size
+            noisy_start = self.frame_seqlen + block_idx * block_size
+            noisy_end = noisy_start + block_size
+            action_start = block_idx * self.num_action_per_block
+            action_end = action_start + self.num_action_per_block
+            state_start = block_idx * self.num_state_per_block
+            state_end = state_start + self.num_state_per_block
+
+            k_context = torch.cat(
+                [
+                    clean_image_k[:, :clean_end],
+                    noisy_image_k[:, noisy_start:noisy_end],
+                    noisy_action_k[:, action_start:action_end],
+                    noisy_state_k[:, state_start:state_end],
+                ],
+                dim=1,
+            )
+            v_context = torch.cat(
+                [
+                    clean_image_v[:, :clean_end],
+                    noisy_image_v[:, noisy_start:noisy_end],
+                    noisy_action_v[:, action_start:action_end],
+                    noisy_state_v[:, state_start:state_end],
+                ],
+                dim=1,
+            )
+            grouped_query = torch.cat(
+                [
+                    noisy_image_q[:, noisy_start:noisy_end],
+                    noisy_action_q[:, action_start:action_end],
+                ],
+                dim=1,
+            )
+            grouped_output = self.attn(
+                grouped_query,
+                k_context,
+                v_context,
+            )
+            noisy_image_output[:, noisy_start:noisy_end] = (
+                grouped_output[:, :block_size]
+            )
+            noisy_action_output[:, action_start:action_end] = (
+                grouped_output[:, block_size:]
+            )
+
+        return noisy_image_output, noisy_action_output
+
     def forward(
         self,
         x: torch.Tensor,
@@ -902,55 +1308,156 @@ class CausalWanSelfAttention(nn.Module):
                             "num_blocks * (num_action_per_block + num_state_per_block)."
                         )
                     
-                    # Split clean and noisy parts
-                    # Clean: [image tokens only]
-                    clean_image_q = roped_query[:, :clean_image_seq_len]
-                    clean_image_k = roped_key[:, :clean_image_seq_len]
-                    clean_image_v = v[:, :clean_image_seq_len]
+                    if self.teacher_forcing_attn_backend == "flex":
+                        x = self._process_teacher_forcing_flex(
+                            roped_query,
+                            roped_key,
+                            v,
+                            clean_frames=clean_frames,
+                            action_horizon=action_horizon,
+                            state_horizon=state_horizon,
+                        )
+                    else:
+                        # Split clean and noisy parts.
+                        clean_image_q = roped_query[:, :clean_image_seq_len]
+                        clean_image_k = roped_key[:, :clean_image_seq_len]
+                        clean_image_v = v[:, :clean_image_seq_len]
 
-                    # Noisy: [image tokens][action tokens][state tokens]
-                    noisy_image_q = roped_query[:, half_seq_len:half_seq_len + noisy_image_seq_len]
-                    noisy_action_q = roped_query[:, half_seq_len + noisy_image_seq_len:half_seq_len + noisy_image_seq_len + action_horizon]
-                    noisy_state_q = roped_query[:, half_seq_len + noisy_image_seq_len + action_horizon:]
-                    
-                    noisy_image_k = roped_key[:, half_seq_len:half_seq_len + noisy_image_seq_len]
-                    noisy_action_k = roped_key[:, half_seq_len + noisy_image_seq_len:half_seq_len + noisy_image_seq_len + action_horizon]
-                    noisy_state_k = roped_key[:, half_seq_len + noisy_image_seq_len + action_horizon:]
-                    
-                    noisy_image_v = v[:, half_seq_len:half_seq_len + noisy_image_seq_len]
-                    noisy_action_v = v[:, half_seq_len + noisy_image_seq_len:half_seq_len + noisy_image_seq_len + action_horizon]
-                    noisy_state_v = v[:, half_seq_len + noisy_image_seq_len + action_horizon:]
-                    
-                    # ========== Process CLEAN (context) image tokens ==========
-                    # Clean images: simple blockwise causal attention (no action/state)
-                    clean_image_outputs = self._process_clean_image_only(
-                        clean_image_q, clean_image_k, clean_image_v, clean_frames)
-                    
-                    # ========== Process NOISY tokens ==========
-                    # Noisy image blocks: attend to previous clean image blocks + current noisy image + current noisy action + current noisy state
-                    noisy_image_outputs = self._process_noisy_image_blocks(
-                        noisy_image_q, noisy_image_k, noisy_image_v,
-                        clean_image_k, clean_image_v,
-                        noisy_action_k, noisy_action_v, noisy_state_k, noisy_state_v,
-                        noisy_frames, action_horizon, state_horizon)
-                    
-                    # Noisy action blocks: attend to previous clean image blocks (including first) + current noisy image + current noisy action + same state
-                    noisy_action_outputs = self._process_noisy_action_blocks(
-                        noisy_action_q, noisy_action_k, noisy_action_v,
-                        clean_image_k, clean_image_v, 
-                        noisy_image_k, noisy_image_v,
-                        noisy_state_k, noisy_state_v,
-                        noisy_frames, action_horizon, state_horizon)
-                    
-                    # Noisy state blocks: self-attention only
-                    noisy_state_outputs = self._process_state_blocks(
-                        noisy_state_q, noisy_state_k, noisy_state_v, state_horizon)
-                    
-                    # Concatenate all outputs in order: clean_img, noisy_img, noisy_act, noisy_state
-                    x = torch.cat([
-                        clean_image_outputs,
-                        noisy_image_outputs, noisy_action_outputs, noisy_state_outputs
-                    ], dim=1)
+                        noisy_image_q = roped_query[
+                            :, half_seq_len:half_seq_len + noisy_image_seq_len
+                        ]
+                        noisy_action_q = roped_query[
+                            :,
+                            half_seq_len + noisy_image_seq_len:
+                            half_seq_len + noisy_image_seq_len + action_horizon,
+                        ]
+                        noisy_state_q = roped_query[
+                            :,
+                            half_seq_len + noisy_image_seq_len + action_horizon:,
+                        ]
+
+                        noisy_image_k = roped_key[
+                            :, half_seq_len:half_seq_len + noisy_image_seq_len
+                        ]
+                        noisy_action_k = roped_key[
+                            :,
+                            half_seq_len + noisy_image_seq_len:
+                            half_seq_len + noisy_image_seq_len + action_horizon,
+                        ]
+                        noisy_state_k = roped_key[
+                            :,
+                            half_seq_len + noisy_image_seq_len + action_horizon:,
+                        ]
+
+                        noisy_image_v = v[
+                            :, half_seq_len:half_seq_len + noisy_image_seq_len
+                        ]
+                        noisy_action_v = v[
+                            :,
+                            half_seq_len + noisy_image_seq_len:
+                            half_seq_len + noisy_image_seq_len + action_horizon,
+                        ]
+                        noisy_state_v = v[
+                            :,
+                            half_seq_len + noisy_image_seq_len + action_horizon:,
+                        ]
+
+                        if self.teacher_forcing_attn_backend == "grouped":
+                            clean_image_outputs = (
+                                self._process_clean_image_only(
+                                    clean_image_q,
+                                    clean_image_k,
+                                    clean_image_v,
+                                    clean_frames,
+                                    reuse_contiguous_prefix=True,
+                                )
+                            )
+                            (
+                                noisy_image_outputs,
+                                noisy_action_outputs,
+                            ) = (
+                                self._process_noisy_image_action_blocks_grouped(
+                                    noisy_image_q,
+                                    noisy_image_k,
+                                    noisy_image_v,
+                                    noisy_action_q,
+                                    noisy_action_k,
+                                    noisy_action_v,
+                                    clean_image_k,
+                                    clean_image_v,
+                                    noisy_state_k,
+                                    noisy_state_v,
+                                    noisy_frames,
+                                    action_horizon,
+                                    state_horizon,
+                                )
+                            )
+                            noisy_state_outputs = (
+                                self._process_state_blocks_grouped(
+                                    noisy_state_q,
+                                    noisy_state_k,
+                                    noisy_state_v,
+                                    state_horizon,
+                                )
+                            )
+                        else:
+                            clean_image_outputs = (
+                                self._process_clean_image_only(
+                                    clean_image_q,
+                                    clean_image_k,
+                                    clean_image_v,
+                                    clean_frames,
+                                )
+                            )
+                            noisy_image_outputs = (
+                                self._process_noisy_image_blocks(
+                                    noisy_image_q,
+                                    noisy_image_k,
+                                    noisy_image_v,
+                                    clean_image_k,
+                                    clean_image_v,
+                                    noisy_action_k,
+                                    noisy_action_v,
+                                    noisy_state_k,
+                                    noisy_state_v,
+                                    noisy_frames,
+                                    action_horizon,
+                                    state_horizon,
+                                )
+                            )
+                            noisy_action_outputs = (
+                                self._process_noisy_action_blocks(
+                                    noisy_action_q,
+                                    noisy_action_k,
+                                    noisy_action_v,
+                                    clean_image_k,
+                                    clean_image_v,
+                                    noisy_image_k,
+                                    noisy_image_v,
+                                    noisy_state_k,
+                                    noisy_state_v,
+                                    noisy_frames,
+                                    action_horizon,
+                                    state_horizon,
+                                )
+                            )
+                            noisy_state_outputs = (
+                                self._process_state_blocks(
+                                    noisy_state_q,
+                                    noisy_state_k,
+                                    noisy_state_v,
+                                    state_horizon,
+                                )
+                            )
+                        x = torch.cat(
+                            [
+                                clean_image_outputs,
+                                noisy_image_outputs,
+                                noisy_action_outputs,
+                                noisy_state_outputs,
+                            ],
+                            dim=1,
+                        )
                 else:
                     # No action/state tokens, fall back to simple image-only teacher forcing
                     half_frames = half_seq_len // self.frame_seqlen
@@ -1108,7 +1615,8 @@ class CausalWanAttentionBlock(nn.Module):
                  cross_attn_norm=False,
                  eps=1e-6,
                  num_action_per_block=32,
-                 num_state_per_block=1):
+                 num_state_per_block=1,
+                 teacher_forcing_attn_backend="fragmented"):
         super().__init__()
         self.dim = dim
         self.ffn_dim = ffn_dim
@@ -1131,6 +1639,7 @@ class CausalWanAttentionBlock(nn.Module):
             eps=eps,
             num_action_per_block=num_action_per_block,
             num_state_per_block=num_state_per_block,
+            teacher_forcing_attn_backend=teacher_forcing_attn_backend,
         )
         self.norm3 = WanLayerNorm(
             dim, eps,
@@ -1290,6 +1799,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                  diffusion_model_pretrained_path=None,
                  num_action_per_block=32,
                  num_state_per_block=1,
+                 teacher_forcing_attn_backend="fragmented",
                  concat_first_frame_latent=True):
         r"""
         Initialize the diffusion model backbone.
@@ -1360,6 +1870,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         self.hidden_size = hidden_size
         self.num_action_per_block = num_action_per_block
         self.num_state_per_block = num_state_per_block
+        self.teacher_forcing_attn_backend = teacher_forcing_attn_backend
         self.concat_first_frame_latent = concat_first_frame_latent
 
         max_num_embodiments = 1
@@ -1399,9 +1910,16 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         self.blocks = nn.ModuleList([
             CausalWanAttentionBlock(cross_attn_type, dim, ffn_dim, num_heads, frame_seqlen,
                                     self.local_attn_size, sink_size, num_frame_per_block, qk_norm, cross_attn_norm, eps,
-                                    num_action_per_block, num_state_per_block)
+                                    num_action_per_block, num_state_per_block,
+                                    teacher_forcing_attn_backend)
             for _ in range(num_layers)
         ])
+
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            print(
+                "Teacher-forcing attention backend: "
+                f"{self.teacher_forcing_attn_backend}"
+            )
 
         # head
         self.head = CausalHead(dim, out_dim, patch_size, eps)

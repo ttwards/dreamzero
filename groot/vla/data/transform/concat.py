@@ -111,12 +111,18 @@ class ConcatTransform(InvertibleModalityTransform):
             unsqueezed_videos = []
             for video_key in self.video_concat_order:
                 video_data = data.pop(video_key)
-                unsqueezed_video = np.expand_dims(
-                    video_data, axis=-4
-                )  # [..., H, W, C] -> [..., 1, H, W, C]
+                if isinstance(video_data, torch.Tensor):
+                    unsqueezed_video = video_data.unsqueeze(-4)
+                else:
+                    unsqueezed_video = np.expand_dims(
+                        video_data, axis=-4
+                    )  # [..., H, W, C] -> [..., 1, H, W, C]
                 unsqueezed_videos.append(unsqueezed_video)
             # Concatenate along the new axis
-            unsqueezed_video = np.concatenate(unsqueezed_videos, axis=-4)  # [..., V, H, W, C]
+            if isinstance(unsqueezed_videos[0], torch.Tensor):
+                unsqueezed_video = torch.cat(unsqueezed_videos, dim=-4)
+            else:
+                unsqueezed_video = np.concatenate(unsqueezed_videos, axis=-4)
 
             # Video
             data["video"] = unsqueezed_video

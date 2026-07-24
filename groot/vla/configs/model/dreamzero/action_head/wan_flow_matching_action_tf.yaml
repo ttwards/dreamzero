@@ -14,6 +14,7 @@ train_architecture: "lora"
 num_frame_per_block: 1
 num_action_per_block: 32
 num_state_per_block: 1
+teacher_forcing_attn_backend: "fragmented"
 frame_seqlen: 880
 action_head_cfg:
   _target_: groot.vla.model.dreamzero.action_head.wan_flow_matching_action_tf.WANPolicyHead
@@ -76,6 +77,7 @@ action_head_cfg:
       num_frame_per_block: ${num_frame_per_block}
       num_action_per_block: ${num_action_per_block}
       num_state_per_block: ${num_state_per_block}
+      teacher_forcing_attn_backend: ${teacher_forcing_attn_backend}
     text_encoder_cfg:
       _target_: groot.vla.model.dreamzero.modules.wan_video_text_encoder.WanTextEncoder
       _convert_: object

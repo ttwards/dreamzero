@@ -84,6 +84,7 @@ normalize_cfg: &normalize_cfg
 to_numpy_cfg: &to_numpy_cfg
   _target_: groot.vla.data.transform.VideoToNumpy
   apply_to: ???
+  keep_on_device: ${nvimgcodec_decode}
 
 
 ################################################################################

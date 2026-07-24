@@ -70,6 +70,8 @@ def run_one(
     metadata: str,
     tokenizer: str,
     keep_ratio: float,
+    pin_memory: bool,
+    prefetch_factor: int,
 ) -> dict[str, Any]:
     cfg = make_config(metadata, tokenizer, keep_ratio)
     transformed = stage != "decoded_block"
@@ -88,8 +90,9 @@ def run_one(
         batch_size=1,
         collate_fn=collator or identity_collate,
         num_workers=workers,
-        pin_memory=False,
+        pin_memory=pin_memory,
         persistent_workers=workers > 0,
+        **({"prefetch_factor": prefetch_factor} if workers > 0 else {}),
     )
 
     iterator = iter(loader)
@@ -110,6 +113,8 @@ def run_one(
     result = {
         "stage": stage,
         "workers": workers,
+        "pin_memory": pin_memory,
+        "prefetch_factor": prefetch_factor if workers > 0 else None,
         "warmup_batches": warmup,
         "measured_batches": measured,
         "first_batch_seconds": first_seconds,
@@ -138,6 +143,8 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=16)
     parser.add_argument("--keep-ratio", type=float, default=0.1)
     parser.add_argument("--workers", nargs="+", type=int, default=[0, 1, 2, 4, 8])
+    parser.add_argument("--pin-memory", action="store_true")
+    parser.add_argument("--prefetch-factor", type=int, default=2)
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
@@ -153,6 +160,8 @@ def main() -> None:
                     metadata=args.metadata,
                     tokenizer=args.tokenizer,
                     keep_ratio=args.keep_ratio,
+                    pin_memory=args.pin_memory,
+                    prefetch_factor=args.prefetch_factor,
                 )
             )
 

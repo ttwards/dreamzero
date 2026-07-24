@@ -243,14 +243,19 @@ class VLA(PreTrainedModel):
         self.validate_inputs(inputs)
         backbone_inputs = self.backbone.prepare_input(inputs)
         action_inputs = self.action_head.prepare_input(inputs)
+        non_blocking = getattr(self, "_dreamzero_non_blocking", False)
 
         def to_device_with_maybe_dtype(x):
             # Only cast to self.compute_dtype if the tensor is floating
             if torch.is_floating_point(x):
-                return x.to(self.device, dtype=self.action_head.dtype)
+                return x.to(
+                    self.device,
+                    dtype=self.action_head.dtype,
+                    non_blocking=non_blocking,
+                )
             else:
                 # Keep original dtype
-                return x.to(self.device)
+                return x.to(self.device, non_blocking=non_blocking)
 
         backbone_inputs = tree.map_structure(to_device_with_maybe_dtype, backbone_inputs)
         action_inputs = tree.map_structure(to_device_with_maybe_dtype, action_inputs)
