@@ -1,7 +1,7 @@
 #!/bin/bash
 # Volcano multi-node launcher for native EgoVLA WDS training in DreamZero.
 # It reuses EgoVLA's torchrun/RDMA/NUMA topology. DreamZero itself uses
-# Transformers + DeepSpeed ZeRO-2 rather than EgoVLA's FSDP2/HSDP DeviceMesh.
+# Transformers + DeepSpeed rather than EgoVLA's FSDP2/HSDP DeviceMesh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -111,6 +111,10 @@ done
 if [ ! -f "$DEEPSPEED_CONFIG" ]; then
     echo "Missing DeepSpeed config: $DEEPSPEED_CONFIG" >&2
     exit 2
+fi
+if [ "${PATCH_DEEPSPEED_HPZ_SMALL_PARAM:-true}" = "true" ]; then
+    "$PYTHON_BIN" "$SCRIPT_DIR/patch_deepspeed_hpz_small_param.py" \
+        --config "$DEEPSPEED_CONFIG"
 fi
 required_files=(
     "$WAN_CKPT_DIR/models_t5_umt5-xxl-enc-bf16.pth"
