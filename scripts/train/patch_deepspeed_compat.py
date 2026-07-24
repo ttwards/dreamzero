@@ -21,6 +21,12 @@ graph breaks, AOTAutograd can invoke graph compiler closures out of FIFO order,
 pairing one graph's parameter indices with another graph's inputs. Keep the
 one-shot real inputs in each backend closure instead.
 
+DeepCompile's ZeRO-3 partitioner forces parameter-derived activations to be
+saved unless they are aliases or casts. Wan's per-block timestep modulation is
+a cheap add involving a trainable parameter, but its output is nearly 1 GiB at
+the training sequence length. Recompute that add in backward instead of saving
+one copy for every transformer block.
+
 The patches are source-checked and idempotent. If DeepSpeed changes an
 affected block, this script fails instead of modifying an unknown version.
 """
@@ -215,6 +221,37 @@ DEEPCOMPILE_INPUT_CHECK_PATCHED_BLOCK = """\
             param_manager[graph_id] = DSGraphParamManager(gm.graph, real_inputs, param_indices)
 """
 
+DEEPCOMPILE_PARAM_POINTWISE_VULNERABLE_BLOCK = """\
+    no_copy_ops = get_no_copy_ops()
+
+    def need_recompute(n: Node) -> bool:
+        if n.op == "call_function":
+            is_cast, _ = is_cast_op(n)
+            return n.target in no_copy_ops or is_cast
+        return False
+"""
+
+DEEPCOMPILE_PARAM_POINTWISE_PATCHED_BLOCK = """\
+    no_copy_ops = get_no_copy_ops()
+    # Saving the output of a cheap parameter-dependent add can be much more
+    # expensive than recomputing it. Wan timestep modulation produces one
+    # [batch, sequence, 6, hidden] tensor per transformer block (~934 MiB at
+    # the production shape), otherwise defeating activation checkpointing.
+    parameter_pointwise_ops = {
+        torch.ops.aten.add.Tensor,
+    }
+
+    def need_recompute(n: Node) -> bool:
+        if n.op == "call_function":
+            is_cast, _ = is_cast_op(n)
+            return (
+                n.target in no_copy_ops
+                or n.target in parameter_pointwise_ops
+                or is_cast
+            )
+        return False
+"""
+
 
 def _load_config(config_path: Path) -> dict:
     with config_path.open(encoding="utf-8") as stream:
@@ -332,6 +369,15 @@ def main() -> None:
                     "def _get_guard_sizes_strides(t):",
                     "tx.output.input_source_to_sizes_strides[source]",
                 ),
+            )
+        )
+        patches.append(
+            (
+                "DeepCompile parameter-derived pointwise recomputation",
+                _deepspeed_source("compile/partitioner.py"),
+                DEEPCOMPILE_PARAM_POINTWISE_VULNERABLE_BLOCK,
+                DEEPCOMPILE_PARAM_POINTWISE_PATCHED_BLOCK,
+                (),
             )
         )
 
