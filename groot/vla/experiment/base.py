@@ -669,6 +669,21 @@ class BaseTrainer(transformers.Trainer):
                 "yes",
                 "on",
             }
+        # Complex-layout pointwise kernels normally benchmark two Triton launch
+        # configurations on their first invocation.  If a kernel mutates a
+        # large activation, the benchmark path clones that activation to
+        # preserve its value.  The Wan MLP bias-add output is about 420 MiB at
+        # the training shape, so the temporary clone can OOM an otherwise
+        # viable compiled forward.  A single deterministic pointwise config
+        # avoids that one-time allocation while leaving GEMM and reduction
+        # code generation enabled.
+        autotune_pointwise = os.environ.get("TORCHINDUCTOR_AUTOTUNE_POINTWISE")
+        if autotune_pointwise is not None:
+            from torch._inductor import config as inductor_config
+
+            inductor_config.triton.autotune_pointwise = (
+                autotune_pointwise.lower() in {"1", "true", "yes", "on"}
+            )
 
         self.compute_dtype = kwargs.pop("compute_dtype")
         self.output_dir = kwargs.pop("output_dir")

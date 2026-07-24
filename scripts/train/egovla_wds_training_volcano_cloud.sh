@@ -74,6 +74,11 @@ export TORCHINDUCTOR_COMPILE_THREADS="${TORCHINDUCTOR_COMPILE_THREADS:-12}"
 # Inductor's random rewrite. Only those small RNG kernels use ATen fallback;
 # the complete VLA graph still goes through Inductor.
 export TORCHINDUCTOR_FALLBACK_RANDOM="${TORCHINDUCTOR_FALLBACK_RANDOM:-true}"
+# Runtime autotuning clones mutated pointwise inputs.  The Wan MLP bias-add
+# output is roughly 420 MiB, which is enough to OOM the compiled forward on an
+# 80 GiB A800.  Use the fixed pointwise launch heuristic; GEMM selection and
+# the rest of Inductor remain enabled.
+export TORCHINDUCTOR_AUTOTUNE_POINTWISE="${TORCHINDUCTOR_AUTOTUNE_POINTWISE:-false}"
 export REPORT_TO="${REPORT_TO:-wandb}"
 export WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
 export DREAMZERO_RUNTIME_DIR="${DREAMZERO_RUNTIME_DIR:-/opt/dreamzero-runtime}"
@@ -118,6 +123,7 @@ echo "teacher-forcing attention: ${TEACHER_FORCING_ATTN_BACKEND}"
 echo "torch compile: ${TORCH_COMPILE} (${TORCH_COMPILE_BACKEND}/${TORCH_COMPILE_MODE}, dynamic=${TORCH_COMPILE_DYNAMIC}, fullgraph=${TORCH_COMPILE_FULLGRAPH})"
 echo "torch inductor compile workers: ${TORCHINDUCTOR_COMPILE_THREADS}/rank ($((TORCHINDUCTOR_COMPILE_THREADS * GPUS_PER_NODE))/node)"
 echo "torch inductor random fallback: ${TORCHINDUCTOR_FALLBACK_RANDOM}"
+echo "torch inductor pointwise autotune: ${TORCHINDUCTOR_AUTOTUNE_POINTWISE}"
 echo "local runtime: ${DREAMZERO_RUNTIME_DIR}"
 echo "output: ${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egovla_wds}"
 
