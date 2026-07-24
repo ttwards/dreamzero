@@ -66,6 +66,10 @@ export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
 export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
+# This setting is per rank. Eight local ranks times 12 workers gives a
+# 96-worker whole-node compilation budget without spawning the default
+# 8 x 32 = 256 mostly-idle workers.
+export TORCHINDUCTOR_COMPILE_THREADS="${TORCHINDUCTOR_COMPILE_THREADS:-12}"
 # PyTorch 2.8 + ZeRO-3 DeepCompile can leave symbolic randn nodes that miss
 # Inductor's random rewrite. Only those small RNG kernels use ATen fallback;
 # the complete VLA graph still goes through Inductor.
@@ -112,6 +116,7 @@ echo "deepspeed config: ${DEEPSPEED_CONFIG}"
 echo "nvImageCodec decode: ${NVIMGCODEC_DECODE}"
 echo "teacher-forcing attention: ${TEACHER_FORCING_ATTN_BACKEND}"
 echo "torch compile: ${TORCH_COMPILE} (${TORCH_COMPILE_BACKEND}/${TORCH_COMPILE_MODE}, dynamic=${TORCH_COMPILE_DYNAMIC}, fullgraph=${TORCH_COMPILE_FULLGRAPH})"
+echo "torch inductor compile workers: ${TORCHINDUCTOR_COMPILE_THREADS}/rank ($((TORCHINDUCTOR_COMPILE_THREADS * GPUS_PER_NODE))/node)"
 echo "torch inductor random fallback: ${TORCHINDUCTOR_FALLBACK_RANDOM}"
 echo "local runtime: ${DREAMZERO_RUNTIME_DIR}"
 echo "output: ${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egovla_wds}"

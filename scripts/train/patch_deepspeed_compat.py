@@ -16,6 +16,11 @@ them before TorchDynamo builds tensor-match guards. Keep the full symbolic
 shape for tracing while recording the stable released representation for
 guards. This is a backport of the upstream DeepSpeed guard-stability fix.
 
+DeepCompile also keeps forward inputs in a module-global FIFO. With multiple
+graph breaks, AOTAutograd can invoke graph compiler closures out of FIFO order,
+pairing one graph's parameter indices with another graph's inputs. Keep the
+one-shot real inputs in each backend closure instead.
+
 The patches are source-checked and idempotent. If DeepSpeed changes an
 affected block, this script fails instead of modifying an unknown version.
 """
@@ -137,6 +142,79 @@ def patch_fake_tensor():
         return ret
 """
 
+DEEPCOMPILE_INPUT_STORE_VULNERABLE_BLOCK = """\
+        global fwd_real_inputs
+
+        # Create an InputStorage instance for this specific graph
+        # It will be captured by the make_fw_graph closure, eliminating the need for graph ID management
+        input_storage = InputStorage(keep_int_input_tensors=compile_config.keep_int_input_tensors,
+                                     keep_all_input_tensors=compile_config.keep_all_input_tensors)
+
+        # Store in both list (for backward compatibility) and storage (for persistence)
+        # The input_storage keeps tensor metadata to handle cases where
+        # backend_fn is called once but make_fw_graph is called multiple times
+        fwd_real_inputs.append(real_inputs)
+        input_storage.put(real_inputs)
+"""
+
+DEEPCOMPILE_INPUT_STORE_PATCHED_BLOCK = """\
+        # AOTAutograd may invoke graph compiler closures out of creation order.
+        # Keep the first call's real inputs local to this graph instead of
+        # sharing DeepSpeed's module-global FIFO across graph breaks.
+        graph_real_inputs = [real_inputs]
+
+        # Retain graph-local metadata for a repeated make_fw_graph invocation.
+        input_storage = InputStorage(keep_int_input_tensors=compile_config.keep_int_input_tensors,
+                                     keep_all_input_tensors=compile_config.keep_all_input_tensors)
+        input_storage.put(real_inputs)
+"""
+
+DEEPCOMPILE_INPUT_LOAD_VULNERABLE_BLOCK = """\
+            # Try to get real_inputs from the list first, then from storage
+            if fwd_real_inputs:
+                real_inputs = fwd_real_inputs.pop(0)
+            elif input_storage.has_data():
+                # Note: input_storage is captured from the enclosing backend_fn scope
+                # Materialize tensors from storage when list is empty
+                log_rank0(f"Retrieving real inputs from storage for graph_id={graph_id}", enable=debug_log)
+                real_inputs = input_storage.get()
+            else:
+                raise RuntimeError(f"No real inputs available for graph_id {graph_id}. "
+                                   f"List size: {len(fwd_real_inputs)}, Storage has data: {input_storage.has_data()}")
+"""
+
+DEEPCOMPILE_INPUT_LOAD_PATCHED_BLOCK = """\
+            # Consume this graph's own real inputs on the first compiler call.
+            # Repeated calls reconstruct inputs from the graph-local metadata.
+            if graph_real_inputs:
+                real_inputs = graph_real_inputs.pop(0)
+            elif input_storage.has_data():
+                log_rank0(f"Retrieving real inputs from storage for graph_id={graph_id}", enable=debug_log)
+                real_inputs = input_storage.get()
+            else:
+                raise RuntimeError(f"No real inputs available for graph_id {graph_id}. "
+                                   f"Queue size: {len(graph_real_inputs)}, Storage has data: {input_storage.has_data()}")
+"""
+
+DEEPCOMPILE_INPUT_CHECK_VULNERABLE_BLOCK = """\
+            real_inputs = set_example_values_to_symints(real_inputs)
+
+            param_manager[graph_id] = DSGraphParamManager(gm.graph, real_inputs, param_indices)
+"""
+
+DEEPCOMPILE_INPUT_CHECK_PATCHED_BLOCK = """\
+            real_inputs = set_example_values_to_symints(real_inputs)
+
+            max_param_index = max((index for index, _, _ in param_indices), default=-1)
+            if max_param_index >= len(real_inputs):
+                raise RuntimeError(
+                    f"DeepCompile graph-local input mismatch for graph_id={graph_id}: "
+                    f"input_count={len(real_inputs)}, max_param_index={max_param_index}, "
+                    f"parameter_count={len(param_indices)}")
+
+            param_manager[graph_id] = DSGraphParamManager(gm.graph, real_inputs, param_indices)
+"""
+
 
 def _load_config(config_path: Path) -> dict:
     with config_path.open(encoding="utf-8") as stream:
@@ -167,9 +245,12 @@ def _apply_patch(
     vulnerable_block: str,
     patched_block: str,
     description: str,
+    patched_markers: tuple[str, ...] = (),
 ) -> bool:
     source = source_path.read_text(encoding="utf-8")
-    if patched_block in source:
+    if patched_block in source or (
+        patched_markers and all(marker in source for marker in patched_markers)
+    ):
         return False
     if vulnerable_block not in source:
         raise RuntimeError(
@@ -179,6 +260,38 @@ def _apply_patch(
         source.replace(vulnerable_block, patched_block, 1),
         encoding="utf-8",
     )
+    return True
+
+
+def _apply_patch_set(
+    source_path: Path,
+    replacements: tuple[tuple[str, str], ...],
+    description: str,
+) -> bool:
+    source = source_path.read_text(encoding="utf-8")
+    patched = [patched_block in source for _, patched_block in replacements]
+    if all(patched):
+        return False
+    if any(patched):
+        raise RuntimeError(
+            f"DeepSpeed {description} source is only partially patched: {source_path}"
+        )
+
+    missing = [
+        index
+        for index, (vulnerable_block, _) in enumerate(replacements)
+        if vulnerable_block not in source
+    ]
+    if missing:
+        raise RuntimeError(
+            f"DeepSpeed {description} source does not match expected blocks "
+            f"{missing}: {source_path}"
+        )
+
+    updated = source
+    for vulnerable_block, patched_block in replacements:
+        updated = updated.replace(vulnerable_block, patched_block, 1)
+    source_path.write_text(updated, encoding="utf-8")
     return True
 
 
@@ -196,6 +309,7 @@ def main() -> None:
                 _deepspeed_source("runtime/zero/partition_parameters.py"),
                 HPZ_VULNERABLE_BLOCK,
                 HPZ_PATCHED_BLOCK,
+                (),
             )
         )
     if _deepcompile_zero3_enabled(config):
@@ -205,6 +319,7 @@ def main() -> None:
                 _deepspeed_source("compile/init_z3.py"),
                 DEEPCOMPILE_VULNERABLE_BLOCK,
                 DEEPCOMPILE_PATCHED_BLOCK,
+                (),
             )
         )
         patches.append(
@@ -213,18 +328,49 @@ def main() -> None:
                 _deepspeed_source("compile/patch_fake_tensor.py"),
                 DEEPCOMPILE_GUARD_VULNERABLE_BLOCK,
                 DEEPCOMPILE_GUARD_PATCHED_BLOCK,
+                (
+                    "def _get_guard_sizes_strides(t):",
+                    "tx.output.input_source_to_sizes_strides[source]",
+                ),
             )
         )
 
-    for description, source_path, vulnerable_block, patched_block in patches:
+    for description, source_path, vulnerable_block, patched_block, patched_markers in patches:
         changed = _apply_patch(
             source_path,
             vulnerable_block,
             patched_block,
             description,
+            patched_markers,
         )
         state = "applied" if changed else "already applied"
         print(f"DeepSpeed {description} compatibility patch: {state} ({source_path})")
+
+    if _deepcompile_zero3_enabled(config):
+        source_path = _deepspeed_source("compile/backend.py")
+        changed = _apply_patch_set(
+            source_path,
+            (
+                (
+                    DEEPCOMPILE_INPUT_STORE_VULNERABLE_BLOCK,
+                    DEEPCOMPILE_INPUT_STORE_PATCHED_BLOCK,
+                ),
+                (
+                    DEEPCOMPILE_INPUT_LOAD_VULNERABLE_BLOCK,
+                    DEEPCOMPILE_INPUT_LOAD_PATCHED_BLOCK,
+                ),
+                (
+                    DEEPCOMPILE_INPUT_CHECK_VULNERABLE_BLOCK,
+                    DEEPCOMPILE_INPUT_CHECK_PATCHED_BLOCK,
+                ),
+            ),
+            "DeepCompile graph-local forward inputs",
+        )
+        state = "applied" if changed else "already applied"
+        print(
+            f"DeepSpeed DeepCompile graph-local forward inputs compatibility "
+            f"patch: {state} ({source_path})"
+        )
 
 
 if __name__ == "__main__":
