@@ -33,11 +33,13 @@ if [[ -d "$LOCAL_RUNTIME_DIR/train-site" &&
     # to a bare Conda interpreter that does not contain torch.
     DEFAULT_PYTHON_BIN=/root/miniconda3/bin/python3
     PYTHON_BIN="${DREAMZERO_PYTHON_BIN:-$DEFAULT_PYTHON_BIN}"
+    DEFAULT_TORCH_EXTENSIONS_DIR="$LOCAL_RUNTIME_DIR/torch-extensions"
     export PYTHONPATH="$LOCAL_RUNTIME_DIR/train-site:$LOCAL_RUNTIME_DIR/torch-site:$LOCAL_RUNTIME_DIR/local-site:${PYTHONPATH:-}"
     export LD_LIBRARY_PATH="$LOCAL_RUNTIME_DIR/torch-site/nvidia/nccl/lib:$LOCAL_RUNTIME_DIR/torch-site/nvidia/cusparselt/lib:$LOCAL_RUNTIME_DIR/local-site/nvidia/nvjpeg/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 elif [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
     DEFAULT_PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
     PYTHON_BIN="${DREAMZERO_PYTHON_BIN:-${PYTHON_BIN:-$DEFAULT_PYTHON_BIN}}"
+    DEFAULT_TORCH_EXTENSIONS_DIR="$PROJECT_DIR/.torch-extensions"
 else
     echo "Missing local DreamZero runtime: $LOCAL_RUNTIME_DIR" >&2
     echo "The worker image must contain the runtime installed on the development machine." >&2
@@ -48,6 +50,13 @@ if [ ! -x "$PYTHON_BIN" ]; then
     echo "Python interpreter is not executable: $PYTHON_BIN" >&2
     exit 2
 fi
+
+# Keep DeepSpeed's compiled CPUAdam/DeepCompile extensions on the image's
+# local disk as well.  This avoids eight ranks on every new worker node
+# rebuilding the same extensions into an implicit home-directory cache.
+TORCH_EXTENSIONS_DIR="${TORCH_EXTENSIONS_DIR:-$DEFAULT_TORCH_EXTENSIONS_DIR}"
+export TORCH_EXTENSIONS_DIR
+mkdir -p "$TORCH_EXTENSIONS_DIR"
 
 if ! "$PYTHON_BIN" -c \
     'import torch, torchvision, transformers, accelerate, deepspeed, wandb; from nvidia import nvimgcodec'; then
@@ -144,7 +153,6 @@ export TP_SOCKET_IFNAME="$RDMA_IFNAME"
 export NCCL_SOCKET_IFNAME="$RDMA_IFNAME"
 export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
 export NCCL_TIMEOUT="${NCCL_TIMEOUT:-3600}"
-export NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-0}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
@@ -271,6 +279,7 @@ echo "metadata=$WDS_METADATA"
 echo "output=$OUTPUT_DIR"
 echo "python=$PYTHON_BIN"
 echo "runtime=$LOCAL_RUNTIME_DIR"
+echo "torch extensions=$TORCH_EXTENSIONS_DIR"
 echo "deepspeed config=$DEEPSPEED_CONFIG"
 echo "teacher-forcing attention=$TEACHER_FORCING_ATTN_BACKEND"
 echo "torch compile=$TORCH_COMPILE backend=$TORCH_COMPILE_BACKEND mode=$TORCH_COMPILE_MODE dynamic=$TORCH_COMPILE_DYNAMIC fullgraph=$TORCH_COMPILE_FULLGRAPH"

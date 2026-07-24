@@ -125,6 +125,7 @@ echo "torch inductor compile workers: ${TORCHINDUCTOR_COMPILE_THREADS}/rank ($((
 echo "torch inductor random fallback: ${TORCHINDUCTOR_FALLBACK_RANDOM}"
 echo "torch inductor pointwise autotune: ${TORCHINDUCTOR_AUTOTUNE_POINTWISE}"
 echo "local runtime: ${DREAMZERO_RUNTIME_DIR}"
+echo "torch extensions: ${TORCH_EXTENSIONS_DIR:-$DREAMZERO_RUNTIME_DIR/torch-extensions}"
 echo "output: ${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egovla_wds}"
 
 exec bash "$SCRIPT_DIR/egovla_wds_training_volcano.sh"
