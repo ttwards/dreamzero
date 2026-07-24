@@ -1600,18 +1600,22 @@ class CausalWanSelfAttention(nn.Module):
         return x, updated_kv_cache
 
 
-def _aligned_modulation_part(
+def _aligned_timestep_modulation_part(
     timestep_modulation: torch.Tensor,
-    learned_modulation: torch.Tensor,
     index: int,
     target_length: int,
 ) -> torch.Tensor:
-    """Build one modulation component without materializing all components."""
+    """Select and align one timestep component, normally as a tensor view.
+
+    Keep the learned per-block modulation out of this helper.  DeepCompile
+    releases a gathered ZeRO parameter after the first tensor that consumes
+    it.  Materializing ``timestep + learned`` here therefore makes all 240
+    block components live before the compiled forward starts consuming them.
+    Inlining the learned value at its real norm/residual use lets Inductor fuse
+    that addition into the consumer instead.
+    """
     timestep_index = 0 if timestep_modulation.shape[2] == 1 else index
-    part = (
-        timestep_modulation.select(2, timestep_index)
-        + learned_modulation.select(1, index).unsqueeze(1)
-    )
+    part = timestep_modulation.select(2, timestep_index)
     modulation_length = part.shape[1]
     if modulation_length == target_length:
         return part
@@ -1619,6 +1623,45 @@ def _aligned_modulation_part(
         return part[:, :target_length]
     repeat = (target_length + modulation_length - 1) // modulation_length
     return part.repeat_interleave(repeat, dim=1)[:, :target_length]
+
+
+def _apply_modulated_affine(
+    normalized: torch.Tensor,
+    timestep_shift: torch.Tensor,
+    timestep_scale: torch.Tensor,
+    learned_modulation: torch.Tensor,
+    shift_index: int,
+    scale_index: int,
+) -> torch.Tensor:
+    """Apply timestep and learned affine terms without a hoistable sum.
+
+    The operations that directly consume the gathered learned parameter also
+    depend on ``normalized``.  DeepCompile therefore cannot schedule all
+    per-block modulation sums at the start of the graph.
+    """
+    output = normalized * (1 + timestep_scale) + timestep_shift
+    output = torch.addcmul(
+        output,
+        normalized,
+        learned_modulation.select(1, scale_index).unsqueeze(1),
+    )
+    return output + learned_modulation.select(1, shift_index).unsqueeze(1)
+
+
+def _apply_residual_gate(
+    residual: torch.Tensor,
+    value: torch.Tensor,
+    timestep_gate: torch.Tensor,
+    learned_modulation: torch.Tensor,
+    gate_index: int,
+) -> torch.Tensor:
+    """Apply an equivalent distributed gate whose parameter use depends on y."""
+    output = torch.addcmul(residual, value, timestep_gate)
+    return torch.addcmul(
+        output,
+        value,
+        learned_modulation.select(1, gate_index).unsqueeze(1),
+    )
 
 
 class CausalWanAttentionBlock(nn.Module):
@@ -1701,10 +1744,18 @@ class CausalWanAttentionBlock(nn.Module):
         L = x.shape[1]
 
         # self-attention
-        shift_self = _aligned_modulation_part(e, self.modulation, 0, L)
-        scale_self = _aligned_modulation_part(e, self.modulation, 1, L)
+        shift_self = _aligned_timestep_modulation_part(e, 0, L)
+        scale_self = _aligned_timestep_modulation_part(e, 1, L)
+        normalized = self.norm1(x)
         y, updated_kv_cache = self.self_attn(
-            x=(self.norm1(x) * (1 + scale_self) + shift_self),
+            x=_apply_modulated_affine(
+                normalized,
+                shift_self,
+                scale_self,
+                self.modulation,
+                shift_index=0,
+                scale_index=1,
+            ),
             freqs=freqs,
             freqs_action=freqs_action,
             freqs_state=freqs_state,
@@ -1713,19 +1764,39 @@ class CausalWanAttentionBlock(nn.Module):
             is_tf=is_tf,
             current_start_frame=current_start_frame,
         )
-        gate_self = _aligned_modulation_part(e, self.modulation, 2, L)
-        x = x + (y * gate_self)
+        gate_self = _aligned_timestep_modulation_part(e, 2, L)
+        x = _apply_residual_gate(
+            x,
+            y,
+            gate_self,
+            self.modulation,
+            gate_index=2,
+        )
 
         # cross-attention & ffn function
         def cross_attn_ffn(x, context):
             x = x + self.cross_attn(self.norm3(x), context)
-            shift_ffn = _aligned_modulation_part(e, self.modulation, 3, L)
-            scale_ffn = _aligned_modulation_part(e, self.modulation, 4, L)
+            shift_ffn = _aligned_timestep_modulation_part(e, 3, L)
+            scale_ffn = _aligned_timestep_modulation_part(e, 4, L)
+            normalized = self.norm2(x)
             y = self.ffn(
-                self.norm2(x) * (1 + scale_ffn) + shift_ffn
+                _apply_modulated_affine(
+                    normalized,
+                    shift_ffn,
+                    scale_ffn,
+                    self.modulation,
+                    shift_index=3,
+                    scale_index=4,
+                )
             )
-            gate_ffn = _aligned_modulation_part(e, self.modulation, 5, L)
-            x = x + (y * gate_ffn)
+            gate_ffn = _aligned_timestep_modulation_part(e, 5, L)
+            x = _apply_residual_gate(
+                x,
+                y,
+                gate_ffn,
+                self.modulation,
+                gate_index=5,
+            )
             return x
 
         x = cross_attn_ffn(x, context)
@@ -1756,9 +1827,18 @@ class CausalHead(nn.Module):
             e(Tensor): Shape [B, F, 1, C]
         """
         L = x.shape[1]
-        shift = _aligned_modulation_part(e, self.modulation, 0, L)
-        scale = _aligned_modulation_part(e, self.modulation, 1, L)
-        x = self.head(self.norm(x) * (1 + scale) + shift)
+        shift = _aligned_timestep_modulation_part(e, 0, L)
+        scale = _aligned_timestep_modulation_part(e, 1, L)
+        x = self.head(
+            _apply_modulated_affine(
+                self.norm(x),
+                shift,
+                scale,
+                self.modulation,
+                shift_index=0,
+                scale_index=1,
+            )
+        )
         return x
 
 
