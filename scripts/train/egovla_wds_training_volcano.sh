@@ -99,9 +99,9 @@ PROFILE_UPLOAD_WANDB="${PROFILE_UPLOAD_WANDB:-true}"
 PROFILE_DIR="${PROFILE_DIR:-/tmp/dreamzero-profiler/${OUTPUT_DIR##*/}}"
 
 case "$TORCH_COMPILE_SCOPE" in
-    wan|frozen|wan_frozen|all|none) ;;
+    wan|frozen|wan_frozen|vae|all|none) ;;
     *)
-        echo "Unsupported TORCH_COMPILE_SCOPE=$TORCH_COMPILE_SCOPE; use wan, frozen, wan_frozen, all, or none." >&2
+        echo "Unsupported TORCH_COMPILE_SCOPE=$TORCH_COMPILE_SCOPE; use wan, frozen, wan_frozen, vae, all, or none." >&2
         exit 2
         ;;
 esac

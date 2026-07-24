@@ -67,8 +67,9 @@ export TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
 export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
-# Default compile scope keeps the trainable Wan DiT and frozen preprocessing
-# encoders as separate graphs. Set scope=all only for an explicit whole-VLA A/B.
+# Default compile scope keeps the trainable Wan DiT and frozen T5/CLIP
+# encoders as separate graphs. VAE is stateful and can be tested separately
+# with TORCH_COMPILE_SCOPE=vae; it is not part of the production default.
 export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_frozen}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 # This setting is per rank. Eight local ranks times 12 workers gives a

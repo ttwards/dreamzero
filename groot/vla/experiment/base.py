@@ -337,7 +337,10 @@ class TargetedCompileCallback(TrainerCallback):
     ZeRO parameter handles unchanged, then replaces only selected ``forward``
     callables after the DeepSpeed engine is ready.
 
-    Supported scopes are ``wan``, ``frozen``, and ``wan_frozen``.  The launcher
+    Supported scopes are ``wan``, ``frozen``, ``wan_frozen``, and ``vae``.  The
+    ``frozen`` scopes intentionally target only T5 and CLIP: the VAE keeps a
+    stateful causal cache whose shape changes between the conditioning and
+    training calls, so it is exposed as a separate opt-in scope.  The launcher
     uses ``all`` to request the original whole-model Accelerate path explicitly.
     """
 
@@ -461,13 +464,14 @@ class TargetedCompileCallback(TrainerCallback):
                 [
                     (action_head.text_encoder, "forward", "frozen T5"),
                     (action_head.image_encoder.model.visual, "forward", "frozen CLIP visual"),
-                    (action_head.vae.model, "encode", "frozen VAE encode"),
                 ]
             )
+        if self.scope == "vae":
+            targets.append((action_head.vae.model, "encode", "frozen VAE encode"))
         if not targets:
             raise ValueError(
                 f"Unsupported targeted compile scope={self.scope!r}; "
-                "use wan, frozen, wan_frozen, or all"
+                "use wan, frozen, wan_frozen, vae, or all"
             )
 
         rank = int(os.environ.get("RANK", "0"))
