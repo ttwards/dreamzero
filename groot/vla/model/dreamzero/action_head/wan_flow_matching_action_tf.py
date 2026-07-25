@@ -1396,11 +1396,21 @@ class WANPolicyHead(ActionHead):
         self.vae.to(device=self._device, dtype=torch.bfloat16)
         import os
         ENABLE_TENSORRT = os.getenv("ENABLE_TENSORRT", "False").lower() == "true"
+        # Keep the historical default (compile when the variable is absent),
+        # but let training launchers explicitly opt out.  In particular, a
+        # profiler smoke run should not spend its first step compiling frozen
+        # CLIP/T5/VAE graphs on every distributed rank.
+        TORCH_COMPILE_ENABLED = os.getenv("TORCH_COMPILE", "true").lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
         LOAD_TRT_ENGINE = os.getenv("LOAD_TRT_ENGINE", None)
 
         # Torch compile the modules. Skip _forward_blocks: Dynamo with fullgraph can fail on
         # shape variation (e.g. x [1,50,C] vs e [1,200,C]); the block aligns e to x at runtime.
-        if not ENABLE_TENSORRT:
+        if not ENABLE_TENSORRT and TORCH_COMPILE_ENABLED:
             print("Torch compiling the TextEncoder, ImageEncoder, and VAE modules (Wan _forward_blocks not compiled).")
 
             self.text_encoder.forward = torch.compile(
@@ -1414,6 +1424,8 @@ class WANPolicyHead(ActionHead):
             self.vae.model.encode = torch.compile(
                 mode="reduce-overhead", fullgraph=True, dynamic=False,
             )(self.vae.model.encode)
+        elif not ENABLE_TENSORRT:
+            print("Automatic frozen-component torch.compile disabled by TORCH_COMPILE=false.")
         
         self.trt_engine = None
         if LOAD_TRT_ENGINE is not None:

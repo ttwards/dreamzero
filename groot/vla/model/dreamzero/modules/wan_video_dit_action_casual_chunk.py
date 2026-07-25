@@ -30,6 +30,12 @@ import torch.distributed as dist
 import os
 
 ENABLE_TENSORRT = os.getenv("ENABLE_TENSORRT", "False").lower() == "true"
+TORCH_COMPILE_ENABLED = os.getenv("TORCH_COMPILE", "true").lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 
 _COMPILED_FLEX_ATTENTION: Any | None = None
 _TEACHER_FORCING_BLOCK_MASK_CACHE: dict[tuple[Any, ...], BlockMask] = {}
@@ -38,6 +44,8 @@ _TEACHER_FORCING_BLOCK_MASK_CACHE: dict[tuple[Any, ...], BlockMask] = {}
 def _get_compiled_flex_attention():
     """Return one lazily compiled FlexAttention callable per process."""
     global _COMPILED_FLEX_ATTENTION
+    if ENABLE_TENSORRT or not TORCH_COMPILE_ENABLED:
+        return flex_attention
     if _COMPILED_FLEX_ATTENTION is None:
         _COMPILED_FLEX_ATTENTION = torch.compile(
             flex_attention,
