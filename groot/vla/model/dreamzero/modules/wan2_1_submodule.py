@@ -321,12 +321,86 @@ class WanI2VCrossAttention(WanSelfAttention):
         self.norm_k_img = WanRMSNorm(
             dim, eps=eps) if qk_norm else nn.Identity()
 
-    def forward(self, x, context, crossattn_cache=None):
+    def forward(
+        self,
+        x,
+        context,
+        crossattn_cache=None,
+        packed_segment_token_indices=None,
+    ):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
-            context(Tensor): Shape [B, L2, C]
+            context(Tensor): Shape [B, L2, C], or [1, S, L2, C]
+                for a packed batch with S logical segments.
         """
+        if packed_segment_token_indices is not None:
+            if crossattn_cache is not None:
+                raise ValueError(
+                    "Packed training does not support a cross-attention cache"
+                )
+            if x.shape[0] != 1 or context.ndim != 4 or context.shape[0] != 1:
+                raise ValueError(
+                    "Packed I2V cross-attention expects x=[1,L,C] and "
+                    f"context=[1,S,Lc,C], got x={tuple(x.shape)}, "
+                    f"context={tuple(context.shape)}"
+                )
+
+            num_segments = context.shape[1]
+            if len(packed_segment_token_indices) != num_segments:
+                raise ValueError(
+                    "Packed segment index count does not match context slots: "
+                    f"{len(packed_segment_token_indices)} != {num_segments}"
+                )
+
+            context_img = context[:, :, :257]
+            context_text = context[:, :, 257:]
+            n, d = self.num_heads, self.head_dim
+
+            # Parameterized projections run exactly once at a rank-invariant
+            # physical shape. Only the parameter-free attention kernels are
+            # segmented below.
+            q = self.norm_q(self.q(x)).view(1, -1, n, d)
+            text_flat = context_text.reshape(
+                num_segments, context_text.shape[2], context_text.shape[3]
+            )
+            image_flat = context_img.reshape(
+                num_segments, context_img.shape[2], context_img.shape[3]
+            )
+            k = self.norm_k(self.k(text_flat)).view(num_segments, -1, n, d)
+            v = self.v(text_flat).view(num_segments, -1, n, d)
+            k_img = self.norm_k_img(self.k_img(image_flat)).view(
+                num_segments, -1, n, d
+            )
+            v_img = self.v_img(image_flat).view(num_segments, -1, n, d)
+
+            packed_output = torch.zeros_like(q)
+            for segment_index, token_indices in enumerate(
+                packed_segment_token_indices
+            ):
+                if token_indices.numel() == 0:
+                    continue
+                segment_q = q.index_select(1, token_indices)
+                text_output = flash_attention(
+                    segment_q,
+                    k[segment_index : segment_index + 1],
+                    v[segment_index : segment_index + 1],
+                    k_lens=None,
+                )
+                image_output = flash_attention(
+                    segment_q,
+                    k_img[segment_index : segment_index + 1],
+                    v_img[segment_index : segment_index + 1],
+                    k_lens=None,
+                )
+                packed_output = packed_output.index_copy(
+                    1,
+                    token_indices,
+                    text_output + image_output,
+                )
+
+            return self.o(packed_output.flatten(2))
+
         context_img = context[:, :257]
         context = context[:, 257:]
         b, n, d = x.size(0), self.num_heads, self.head_dim

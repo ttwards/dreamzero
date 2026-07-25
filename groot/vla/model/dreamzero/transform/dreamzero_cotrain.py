@@ -21,6 +21,12 @@ from groot.vla.data.schema import (
     DatasetMetadata,
 )
 from groot.vla.data.transform.base import InvertibleModalityTransform
+from groot.vla.data.dataset.dreamzero_packing import (
+    PACKED_FEATURES_KEY,
+    PACK_CHUNK_CAPACITY_KEY,
+    PACK_MAX_SEGMENTS_KEY,
+    infer_chunk_count,
+)
 from groot.vla.model.dreamzero.transform.common import formalize_language
 
 
@@ -190,15 +196,178 @@ def collate(features: List[dict], tokenizer: AutoTokenizer, num_views=3, embodim
     return batch
 
 
+def _pad_packed_time_axis(
+    value: torch.Tensor,
+    *,
+    target_length: int,
+    key: str,
+) -> torch.Tensor:
+    if value.ndim < 2:
+        raise ValueError(
+            f"Packed temporal field {key!r} must have a batch and time axis, "
+            f"got shape {tuple(value.shape)}"
+        )
+    current_length = value.shape[1]
+    if current_length > target_length:
+        raise ValueError(
+            f"Packed field {key!r} has length {current_length}, exceeding "
+            f"capacity {target_length}"
+        )
+    if current_length == target_length:
+        return value
+    padding = value.new_zeros(
+        value.shape[0],
+        target_length - current_length,
+        *value.shape[2:],
+    )
+    return torch.cat([value, padding], dim=1)
+
+
+def collate_packed(
+    packed_feature: dict[str, Any],
+    tokenizer: AutoTokenizer,
+    *,
+    num_views: int,
+    embodiment_tag_mapping,
+    action_horizon: int,
+    video_frames_per_chunk: int,
+) -> dict[str, torch.Tensor]:
+    """Collate one fixed-capacity pack with up to two logical samples."""
+    logical_features = packed_feature[PACKED_FEATURES_KEY]
+    chunk_capacity = int(packed_feature[PACK_CHUNK_CAPACITY_KEY])
+    max_segments = int(packed_feature[PACK_MAX_SEGMENTS_KEY])
+    if max_segments != 2:
+        raise ValueError(
+            f"Packed DreamZero collate requires max_segments=2, got {max_segments}"
+        )
+
+    chunk_counts = [
+        infer_chunk_count(feature, action_horizon)
+        for feature in logical_features
+    ]
+    if sum(chunk_counts) > chunk_capacity:
+        raise ValueError(
+            f"Packed samples use {sum(chunk_counts)} chunks, exceeding "
+            f"capacity {chunk_capacity}"
+        )
+
+    single_batches = [
+        collate([feature], tokenizer, num_views, embodiment_tag_mapping)
+        for feature in logical_features
+    ]
+    all_keys = list(
+        dict.fromkeys(key for single_batch in single_batches for key in single_batch)
+    )
+    if "task_embedding" in all_keys and not all(
+        "task_embedding" in single_batch for single_batch in single_batches
+    ):
+        all_keys.remove("task_embedding")
+
+    action_keys = {
+        "action",
+        "action_mask",
+        "lapa_action",
+        "lapa_action_mask",
+    }
+    state_keys = {"state", "state_mask"}
+    temporal_capacities = {
+        "images": video_frames_per_chunk * chunk_capacity + 1,
+        **{
+            key: action_horizon * chunk_capacity
+            for key in action_keys
+        },
+        **{key: chunk_capacity for key in state_keys},
+    }
+
+    packed_batch: dict[str, torch.Tensor] = {}
+    for key in all_keys:
+        template = next(
+            single_batch[key]
+            for single_batch in single_batches
+            if key in single_batch
+        )
+        slot_values: list[torch.Tensor] = []
+        for slot in range(max_segments):
+            if slot < len(single_batches) and key in single_batches[slot]:
+                value = single_batches[slot][key]
+                if key in temporal_capacities:
+                    value = _pad_packed_time_axis(
+                        value,
+                        target_length=temporal_capacities[key],
+                        key=key,
+                    )
+            else:
+                if key in temporal_capacities:
+                    dummy_shape = list(template.shape)
+                    dummy_shape[1] = temporal_capacities[key]
+                    value = template.new_zeros(dummy_shape)
+                else:
+                    value = torch.zeros_like(template)
+            slot_values.append(value)
+        packed_batch[key] = torch.stack(slot_values, dim=1)
+
+    padded_chunk_counts = chunk_counts + [0] * (max_segments - len(chunk_counts))
+    packed_batch["dreamzero_packed"] = torch.ones(1, dtype=torch.bool)
+    packed_batch["packed_num_chunks"] = torch.tensor(
+        [padded_chunk_counts],
+        dtype=torch.long,
+    )
+    packed_batch["packed_segment_valid"] = torch.tensor(
+        [[slot < len(chunk_counts) for slot in range(max_segments)]],
+        dtype=torch.bool,
+    )
+    packed_batch["packed_chunk_capacity"] = torch.tensor(
+        [chunk_capacity],
+        dtype=torch.long,
+    )
+    packed_batch["packed_max_segments"] = torch.tensor(
+        [max_segments],
+        dtype=torch.long,
+    )
+    packed_batch["packed_action_horizon"] = torch.tensor(
+        [action_horizon],
+        dtype=torch.long,
+    )
+    packed_batch["packed_video_frames_per_chunk"] = torch.tensor(
+        [video_frames_per_chunk],
+        dtype=torch.long,
+    )
+    return packed_batch
+
+
 
 class DefaultDataCollator(DataCollatorMixin):
-    def __init__(self, tokenizer_path: str="google/umt5-xxl", max_length: int=512, num_views: int=1, embodiment_tag_mapping=None):
+    def __init__(
+        self,
+        tokenizer_path: str = "google/umt5-xxl",
+        max_length: int = 512,
+        num_views: int = 1,
+        embodiment_tag_mapping=None,
+        packed_action_horizon: int = 24,
+        packed_video_frames_per_chunk: int = 8,
+    ):
         super().__init__()
         self.tokenizer = HuggingfaceTokenizer(name=tokenizer_path, seq_len=max_length, clean='whitespace')
         self.num_views = num_views
         self.embodiment_tag_mapping = embodiment_tag_mapping
+        self.packed_action_horizon = packed_action_horizon
+        self.packed_video_frames_per_chunk = packed_video_frames_per_chunk
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if features and PACKED_FEATURES_KEY in features[0]:
+            if len(features) != 1:
+                raise ValueError(
+                    "Packed DreamZero training requires "
+                    "per_device_train_batch_size=1 (one pack per device)"
+                )
+            return collate_packed(
+                features[0],
+                self.tokenizer,
+                num_views=self.num_views,
+                embodiment_tag_mapping=self.embodiment_tag_mapping,
+                action_horizon=self.packed_action_horizon,
+                video_frames_per_chunk=self.packed_video_frames_per_chunk,
+            )
         return collate(features, self.tokenizer, self.num_views, self.embodiment_tag_mapping)
 
 

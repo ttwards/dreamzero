@@ -2,8 +2,9 @@
 # Standalone single-node launcher for the EgoSteer LeRobot v3 48D export.
 #
 # Defaults target Wan2.1-I2V-14B full fine-tuning.  The production dataset
-# provides text_embs/<sha1(raw task text)[:16]>.pt; the data config enables
-# that cache and falls back to T5 only for cache misses or mixed batches.
+# provides text_embs/<sha1(raw task text)[:16]>.pt. Packed distributed
+# training requires every logical sample to hit that cache so all ZeRO ranks
+# execute the same trainable module graph.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -140,6 +141,10 @@ TRAIN_COMMAND=(
     image_resolution_width=320
     image_resolution_height=176
     frame_seqlen=880
+    # Fixed physical packed sequence:
+    # 2 * (4 chunks * 2 latent frames + 2 segment first frames) * 880
+    # + 4 * (24 action + 1 state) = 17,700 transformer tokens.
+    performance_tokens_per_sample=17700
     teacher_forcing_attn_backend=fragmented
     "dual_arm_dexterous_hand_data_root=$DATA_ROOT"
     "dataset_shard_sampling_rate=$DATASET_SHARD_SAMPLING_RATE"

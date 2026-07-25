@@ -69,13 +69,28 @@ class VLA(PreTrainedModel):
     def validate_inputs(self, inputs):
         detected_error = False
         error_msg = ERROR_MSG
+        is_packed = False
+        if "dreamzero_packed" in inputs:
+            packed_flag = inputs["dreamzero_packed"]
+            if torch.is_tensor(packed_flag):
+                is_packed = bool(packed_flag.reshape(-1)[0].item())
+            else:
+                is_packed = bool(packed_flag)
         if "action" in inputs:
             action = inputs["action"]
             type_ok = isinstance(action, torch.Tensor)
             shape_ok = (
-                len(action.shape) == 3
-                and action.shape[1] % self.action_horizon == 0
-                and action.shape[2] == self.action_dim
+                (
+                    len(action.shape) == 4
+                    and action.shape[2] % self.action_horizon == 0
+                    and action.shape[3] == self.action_dim
+                )
+                if is_packed
+                else (
+                    len(action.shape) == 3
+                    and action.shape[1] % self.action_horizon == 0
+                    and action.shape[2] == self.action_dim
+                )
             )
             if not type_ok:
                 error_msg += f"\n{action.dtype=}"

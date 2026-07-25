@@ -18,6 +18,8 @@ data_collator:
   max_length : ${max_length}
   num_views: ${num_views}
   embodiment_tag_mapping: ${embodiment_tag_to_projector_index}
+  packed_action_horizon: ${action_horizon}
+  packed_video_frames_per_chunk: 8
 
 ################################################################################
 # Model-Specific Transform

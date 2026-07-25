@@ -568,7 +568,7 @@ class WANPolicyHead(ActionHead):
             prompt_emb = self.text_encoder(input_ids, attention_mask)
             prompt_emb = prompt_emb.clone().to(dtype=torch.bfloat16)
             for i, v in enumerate(seq_lens):
-                prompt_emb[:, v:] = 0
+                prompt_emb[i, v:] = 0
             return prompt_emb
 
     def _ensure_vae_on_device(self, ref_tensor):
@@ -606,6 +606,47 @@ class WANPolicyHead(ActionHead):
             # concat: B * (4+16) * (1+(T-1)/4) * H_latent * W_latent
             y = torch.concat([msk, y], dim=1)
         return clip_context, y, new_image
+
+    def encode_image_condition(self, image, num_frames, height, width):
+        """Encode only the frozen VAE first-frame condition."""
+        with torch.amp.autocast(
+            dtype=torch.bfloat16,
+            device_type=torch.device(self._device).type,
+        ):
+            batch_size = image.shape[0]
+            image_input = image.transpose(1, 2)
+            image_zeros = torch.zeros(
+                batch_size,
+                3,
+                num_frames - 1,
+                height,
+                width,
+                dtype=torch.bfloat16,
+                device=self._device,
+            )
+            with torch.profiler.record_function(
+                "dreamzero/vae_condition_encode"
+            ):
+                self._ensure_vae_on_device(image_input)
+                with torch.no_grad():
+                    condition = self.vae.encode(
+                        torch.concat([image_input, image_zeros], dim=2)
+                    )
+            num_t = condition.shape[2]
+            h_latent, w_latent = condition.shape[3], condition.shape[4]
+            mask = torch.zeros(
+                batch_size,
+                4,
+                num_t,
+                h_latent,
+                w_latent,
+                dtype=condition.dtype,
+                device=self._device,
+            )
+            mask[:, :, 0:1] = 1
+            new_image = condition[:, :, 0:1]
+            condition = torch.cat([mask, condition], dim=1)
+        return condition, new_image
     
     def prepare_extra_input(self, latents=None):
         return {}
@@ -627,11 +668,567 @@ class WANPolicyHead(ActionHead):
             param.data = param.to(torch.float32)
         return model
 
+    def _prepare_packed_video(
+        self,
+        video: torch.Tensor,
+    ) -> torch.Tensor:
+        """Convert one logical packed segment to normalized BCTHW video."""
+        video = rearrange(video, "b t h w c -> b c t h w")
+        if video.dtype == torch.uint8:
+            video = video.float() / 255.0
+            batch_size, channels, frames, height, width = video.shape
+            video = video.permute(0, 2, 1, 3, 4).reshape(
+                batch_size * frames,
+                channels,
+                height,
+                width,
+            )
+            video = self.normalize_video(video)
+            video = video.reshape(
+                batch_size,
+                frames,
+                channels,
+                height,
+                width,
+            ).permute(0, 2, 1, 3, 4)
+            video = video.to(dtype=self.dtype)
+
+        target_height = getattr(self.config, "target_video_height", None)
+        target_width = getattr(self.config, "target_video_width", None)
+        if target_height is None or target_width is None:
+            if getattr(self.model, "frame_seqlen", None) in (50, 55):
+                target_height, target_width = 176, 320
+            else:
+                target_height, target_width = None, None
+        if target_height is not None and target_width is not None:
+            _, _, _, height, width = video.shape
+            if (height, width) != (target_height, target_width):
+                batch_size, channels, frames, _, _ = video.shape
+                video = torch.nn.functional.interpolate(
+                    video.permute(0, 2, 1, 3, 4).reshape(
+                        batch_size * frames,
+                        channels,
+                        height,
+                        width,
+                    ),
+                    size=(target_height, target_width),
+                    mode="bilinear",
+                    align_corners=False,
+                ).reshape(
+                    batch_size,
+                    frames,
+                    channels,
+                    target_height,
+                    target_width,
+                ).permute(0, 2, 1, 3, 4)
+        return video
+
+    def _forward_packed(
+        self,
+        data: BatchFeature,
+    ) -> BatchFeature:
+        """Train one fixed-capacity pack containing up to two contexts."""
+        self.set_frozen_modules_to_eval_mode()
+
+        packed_num_chunks = data["packed_num_chunks"]
+        if packed_num_chunks.ndim != 2 or packed_num_chunks.shape[0] != 1:
+            raise ValueError(
+                "Packed DreamZero currently requires one physical pack per "
+                f"device, got {tuple(packed_num_chunks.shape)}"
+            )
+        max_segments = int(data["packed_max_segments"].reshape(-1)[0].item())
+        chunk_capacity = int(
+            data["packed_chunk_capacity"].reshape(-1)[0].item()
+        )
+        action_horizon = int(
+            data["packed_action_horizon"].reshape(-1)[0].item()
+        )
+        video_frames_per_chunk = int(
+            data["packed_video_frames_per_chunk"].reshape(-1)[0].item()
+        )
+        if max_segments != 2:
+            raise ValueError(
+                f"Packed training requires max_segments=2, got {max_segments}"
+            )
+        if action_horizon != self.model.num_action_per_block:
+            raise ValueError(
+                "Packed action horizon must match model action block size: "
+                f"{action_horizon} != {self.model.num_action_per_block}"
+            )
+
+        chunk_counts = [
+            int(value)
+            for value in packed_num_chunks.detach().cpu().reshape(-1).tolist()
+        ]
+        real_segments = sum(value > 0 for value in chunk_counts)
+        valid_chunks = sum(chunk_counts)
+        if real_segments == 0 or valid_chunks > chunk_capacity:
+            raise ValueError(
+                f"Invalid packed composition {chunk_counts} for capacity "
+                f"{chunk_capacity}"
+            )
+
+        precomputed_prompt_embs = data.get("task_embedding")
+        if precomputed_prompt_embs is None:
+            raise ValueError(
+                "Packed distributed training requires task_embedding for "
+                "every real segment. A per-rank cache miss would otherwise "
+                "make only some ZeRO-3 ranks execute the frozen T5 module. "
+                "Non-packed batches retain the regular mixed-cache fallback."
+            )
+        else:
+            if (
+                precomputed_prompt_embs.ndim != 4
+                or precomputed_prompt_embs.shape[:2] != (1, max_segments)
+                or precomputed_prompt_embs.shape[-1] != self.text_encoder.dim
+            ):
+                raise ValueError(
+                    "Expected packed task_embedding with shape "
+                    f"[1,{max_segments},sequence,{self.text_encoder.dim}], got "
+                    f"{tuple(precomputed_prompt_embs.shape)}"
+                )
+            prompt_embs = precomputed_prompt_embs.to(
+                device=self._device,
+                dtype=torch.bfloat16,
+            )
+
+        latent_parts: list[torch.Tensor] = []
+        condition_parts: list[torch.Tensor] = []
+        first_image_parts: list[torch.Tensor] = []
+        latent_frame_ranges: list[tuple[int, int]] = []
+        frame_cursor = 0
+        latent_height = None
+        latent_width = None
+
+        for segment_index, chunk_count in enumerate(chunk_counts):
+            if chunk_count == 0:
+                continue
+            raw_frames = video_frames_per_chunk * chunk_count + 1
+            segment_video = data["images"][
+                :, segment_index, :raw_frames
+            ]
+            segment_video = self._prepare_packed_video(segment_video)
+            latents = self.encode_video(
+                segment_video,
+                self.tiled,
+                (self.tile_size_height, self.tile_size_width),
+                (self.tile_stride_height, self.tile_stride_width),
+            ).to(self._device)
+            expected_latent_frames = (
+                chunk_count * self.num_frame_per_block + 1
+            )
+            if latents.shape[2] != expected_latent_frames:
+                raise ValueError(
+                    f"Segment {segment_index} produced {latents.shape[2]} "
+                    f"latent frames; expected {expected_latent_frames}"
+                )
+
+            _, _, raw_frame_count, height, width = segment_video.shape
+            first_image = segment_video[:, :, :1].transpose(1, 2)
+            condition, _ = self.encode_image_condition(
+                first_image,
+                raw_frame_count,
+                height,
+                width,
+            )
+            if condition.shape[2] != expected_latent_frames:
+                raise ValueError(
+                    f"Segment {segment_index} condition has "
+                    f"{condition.shape[2]} latent frames; expected "
+                    f"{expected_latent_frames}"
+                )
+
+            latent_parts.append(latents)
+            condition_parts.append(condition.to(self._device))
+            first_image_parts.append(first_image)
+            latent_frame_ranges.append(
+                (frame_cursor, frame_cursor + expected_latent_frames)
+            )
+            frame_cursor += expected_latent_frames
+            latent_height, latent_width = latents.shape[-2:]
+
+        latents = torch.cat(latent_parts, dim=2)
+        condition = torch.cat(condition_parts, dim=2)
+        latent_capacity = (
+            chunk_capacity * self.num_frame_per_block + max_segments
+        )
+        latent_padding = latent_capacity - latents.shape[2]
+        if latent_padding < 0:
+            raise ValueError(
+                f"Packed latent frames {latents.shape[2]} exceed capacity "
+                f"{latent_capacity}"
+            )
+        if latent_padding:
+            latents = torch.cat(
+                [
+                    latents,
+                    latents.new_zeros(
+                        latents.shape[0],
+                        latents.shape[1],
+                        latent_padding,
+                        latents.shape[3],
+                        latents.shape[4],
+                    ),
+                ],
+                dim=2,
+            )
+            condition = torch.cat(
+                [
+                    condition,
+                    condition.new_zeros(
+                        condition.shape[0],
+                        condition.shape[1],
+                        latent_padding,
+                        condition.shape[3],
+                        condition.shape[4],
+                    ),
+                ],
+                dim=2,
+            )
+
+        first_image_template = first_image_parts[0]
+        while len(first_image_parts) < max_segments:
+            first_image_parts.append(torch.zeros_like(first_image_template))
+        packed_first_images = torch.cat(first_image_parts, dim=0)
+        with torch.amp.autocast(
+            dtype=torch.bfloat16,
+            device_type=torch.device(self._device).type,
+        ):
+            with torch.profiler.record_function(
+                "dreamzero/clip_image_encode"
+            ):
+                clip_features = self.image_encoder.encode_image(
+                    packed_first_images
+                )
+        clip_features = clip_features.unsqueeze(0)
+
+        action_parts: list[torch.Tensor] = []
+        action_mask_parts: list[torch.Tensor] = []
+        state_parts: list[torch.Tensor] = []
+        action_ranges: list[tuple[int, int]] = []
+        action_cursor = 0
+        has_real_action: list[bool] = []
+        for segment_index, chunk_count in enumerate(chunk_counts):
+            if chunk_count == 0:
+                continue
+            action_tokens = chunk_count * action_horizon
+            action_parts.append(
+                data["action"][:, segment_index, :action_tokens]
+            )
+            action_mask_parts.append(
+                data["action_mask"][:, segment_index, :action_tokens]
+            )
+            state_parts.append(
+                data["state"][:, segment_index, :chunk_count]
+            )
+            action_ranges.append(
+                (action_cursor, action_cursor + action_tokens)
+            )
+            action_cursor += action_tokens
+            has_real_action.append(
+                bool(
+                    data["has_real_action"][:, segment_index]
+                    .reshape(-1)[0]
+                    .item()
+                )
+            )
+
+        actions = torch.cat(action_parts, dim=1)
+        action_mask = torch.cat(action_mask_parts, dim=1)
+        state_features = torch.cat(state_parts, dim=1)
+        action_capacity = chunk_capacity * action_horizon
+        state_capacity = chunk_capacity * self.model.num_state_per_block
+        if actions.shape[1] < action_capacity:
+            action_pad = action_capacity - actions.shape[1]
+            actions = torch.cat(
+                [
+                    actions,
+                    actions.new_zeros(
+                        actions.shape[0],
+                        action_pad,
+                        actions.shape[2],
+                    ),
+                ],
+                dim=1,
+            )
+            action_mask = torch.cat(
+                [
+                    action_mask,
+                    action_mask.new_zeros(
+                        action_mask.shape[0],
+                        action_pad,
+                        action_mask.shape[2],
+                    ),
+                ],
+                dim=1,
+            )
+        if state_features.shape[1] < state_capacity:
+            state_features = torch.cat(
+                [
+                    state_features,
+                    state_features.new_zeros(
+                        state_features.shape[0],
+                        state_capacity - state_features.shape[1],
+                        state_features.shape[2],
+                    ),
+                ],
+                dim=1,
+            )
+
+        valid_actions = actions[:, :action_cursor]
+        if valid_actions.numel() > 0:
+            if valid_actions.min() < -1.0 or valid_actions.max() > 1.0:
+                raise AssertionError("actions must be in [-1,1] range")
+
+        noise = torch.randn_like(latents).transpose(1, 2)
+        latents_by_frame = latents.transpose(1, 2)
+        if self.config.decouple_video_action_noise:
+            video_noise_ratio = self.video_beta_dist.sample(
+                [1, latent_capacity]
+            )
+            timestep_id = (
+                (1.0 - video_noise_ratio)
+                * self.scheduler.num_train_timesteps
+            ).long()
+            timestep_id = torch.clamp(
+                timestep_id,
+                0,
+                self.scheduler.num_train_timesteps - 1,
+            )
+            noise_mode = "DECOUPLED"
+        elif self.config.use_high_noise_emphasis:
+            noise_ratio = self.high_noise_beta_dist.sample(
+                [1, latent_capacity]
+            )
+            timestep_id = (
+                (1.0 - noise_ratio)
+                * self.scheduler.num_train_timesteps
+            ).long()
+            timestep_id = torch.clamp(
+                timestep_id,
+                0,
+                self.scheduler.num_train_timesteps - 1,
+            )
+            noise_mode = "HIGH_NOISE_EMPHASIS"
+        else:
+            timestep_id = torch.randint(
+                0,
+                self.scheduler.num_train_timesteps,
+                (1, latent_capacity),
+            )
+            noise_mode = "STANDARD"
+
+        action_timestep_parts: list[torch.Tensor] = []
+        for segment_index, (frame_start, _) in enumerate(latent_frame_ranges):
+            chunk_count = chunk_counts[segment_index]
+            for block_index in range(chunk_count):
+                block_start = (
+                    frame_start
+                    + 1
+                    + block_index * self.num_frame_per_block
+                )
+                block_timestep = timestep_id[:, block_start : block_start + 1]
+                timestep_id[
+                    :,
+                    block_start : block_start + self.num_frame_per_block,
+                ] = block_timestep
+                action_timestep_parts.append(
+                    block_timestep.repeat(1, action_horizon)
+                )
+        if latent_padding:
+            timestep_id[:, frame_cursor:] = 0
+
+        noise_action = torch.randn_like(actions)
+        if self.config.decouple_video_action_noise:
+            timestep_action_id = torch.randint(
+                0,
+                self.scheduler.num_train_timesteps,
+                (1, action_capacity),
+            )
+            timestep_action_id[:, action_cursor:] = 0
+            action_mode = "INDEPENDENT"
+        else:
+            timestep_action_id = torch.cat(action_timestep_parts, dim=1)
+            if timestep_action_id.shape[1] < action_capacity:
+                timestep_action_id = torch.cat(
+                    [
+                        timestep_action_id,
+                        timestep_action_id.new_zeros(
+                            1,
+                            action_capacity - timestep_action_id.shape[1],
+                        ),
+                    ],
+                    dim=1,
+                )
+            action_mode = "COUPLED"
+
+        if not self._noise_logged:
+            valid_video_ids = torch.cat(
+                [
+                    timestep_id[:, start:end].reshape(-1)
+                    for start, end in latent_frame_ranges
+                ]
+            )
+            video_mean = valid_video_ids.float().mean().item()
+            action_mean = (
+                timestep_action_id[:, :action_cursor].float().mean().item()
+            )
+            print(
+                f"[NOISE] Mode={noise_mode} | Packed composition="
+                f"{chunk_counts} | Video mean_t={video_mean:.0f} | "
+                f"Action: {action_mode} mean_t={action_mean:.0f}"
+            )
+            self._noise_logged = True
+
+        timestep = self.scheduler.timesteps[timestep_id].to(self._device)
+        noisy_latents = self.scheduler.add_noise(
+            latents_by_frame.flatten(0, 1),
+            noise.flatten(0, 1),
+            timestep.flatten(0, 1),
+        ).unflatten(0, (1, latent_capacity))
+        training_target = self.scheduler.training_target(
+            latents_by_frame,
+            noise,
+            timestep,
+        ).transpose(1, 2)
+
+        timestep_action = self.scheduler.timesteps[
+            timestep_action_id
+        ].to(self._device)
+        noisy_actions = self.scheduler.add_noise(
+            actions.flatten(0, 1),
+            noise_action.flatten(0, 1),
+            timestep_action.flatten(0, 1),
+        ).unflatten(0, (1, action_capacity))
+        training_target_action = self.scheduler.training_target(
+            actions,
+            noise_action,
+            timestep_action,
+        )
+
+        if latent_height is None or latent_width is None:
+            raise AssertionError("Packed media did not produce latent geometry")
+        tokens_per_frame = (latent_height // 2) * (latent_width // 2)
+        seq_len = latent_capacity * tokens_per_frame
+        embodiment_id = data["embodiment_id"][:, 0]
+
+        with torch.amp.autocast(
+            dtype=torch.bfloat16,
+            device_type=torch.device(self._device).type,
+        ):
+            with torch.profiler.record_function("dreamzero/wan_forward"):
+                video_noise_pred, action_noise_pred = self.model(
+                    noisy_latents.transpose(1, 2),
+                    timestep=timestep,
+                    clip_feature=clip_features,
+                    y=condition,
+                    context=prompt_embs,
+                    seq_len=seq_len,
+                    state=state_features,
+                    embodiment_id=embodiment_id,
+                    action=noisy_actions,
+                    timestep_action=timestep_action,
+                    clean_x=latents_by_frame.transpose(1, 2),
+                    packed_num_chunks=packed_num_chunks,
+                    packed_chunk_capacity=chunk_capacity,
+                    packed_max_segments=max_segments,
+                )
+
+            if training_target.shape != video_noise_pred.shape:
+                training_target = training_target[
+                    ...,
+                    : video_noise_pred.shape[3],
+                    : video_noise_pred.shape[4],
+                ]
+            frame_error = torch.nn.functional.mse_loss(
+                video_noise_pred.float(),
+                training_target.float(),
+                reduction="none",
+            ).mean(dim=(1, 3, 4))
+            frame_weight = self.scheduler.training_weight(
+                timestep.flatten(0, 1)
+            ).unflatten(0, (1, latent_capacity)).to(self._device)
+
+            action_error = torch.nn.functional.mse_loss(
+                action_noise_pred.float(),
+                training_target_action.float(),
+                reduction="none",
+            )
+            action_weight = self.scheduler.training_weight(
+                timestep_action.flatten(0, 1)
+            ).unflatten(0, (1, action_capacity)).to(self._device)
+
+            dynamics_losses: list[torch.Tensor] = []
+            action_losses: list[torch.Tensor] = []
+            for sample_index, ((frame_start, frame_end), (
+                action_start,
+                action_end,
+            )) in enumerate(zip(latent_frame_ranges, action_ranges)):
+                dynamics_losses.append(
+                    (
+                        frame_error[:, frame_start:frame_end]
+                        * frame_weight[:, frame_start:frame_end]
+                    ).mean()
+                )
+
+                sample_mask = action_mask[
+                    :, action_start:action_end
+                ].float()
+                weighted_action_error = (
+                    action_error[:, action_start:action_end]
+                    * action_weight[:, action_start:action_end, None]
+                    * sample_mask
+                )
+                denominator = sample_mask.sum().clamp_min(1.0)
+                sample_action_loss = (
+                    weighted_action_error.sum() / denominator
+                )
+                if not has_real_action[sample_index]:
+                    sample_action_loss = sample_action_loss * 0.0
+                action_losses.append(sample_action_loss)
+
+            dynamics_sum = torch.stack(dynamics_losses).sum()
+            action_sum = torch.stack(action_losses).sum()
+            # Fixed normalization preserves equal per-sample influence across
+            # one- and two-context packs. Dividing by the real B would make a
+            # 4+0 sample twice as influential as each sample in 3+1 or 2+2.
+            weighted_dynamics_loss = dynamics_sum / max_segments
+            weighted_action_loss = action_sum / max_segments
+            loss = weighted_dynamics_loss + weighted_action_loss
+
+        return BatchFeature(
+            data={
+                "loss": loss,
+                "dynamics_loss": weighted_dynamics_loss,
+                "action_loss": weighted_action_loss,
+                "packed_sample_mean_dynamics_loss": (
+                    dynamics_sum.detach() / real_segments
+                ),
+                "packed_sample_mean_action_loss": (
+                    action_sum.detach() / real_segments
+                ),
+                "packed_real_samples": torch.tensor(
+                    float(real_segments),
+                    device=loss.device,
+                ),
+                "packed_valid_chunks": torch.tensor(
+                    float(valid_chunks),
+                    device=loss.device,
+                ),
+            }
+        )
+
     def forward(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:
         # Set frozen modules to eval
         self.set_frozen_modules_to_eval_mode()
 
         data = action_input 
+        packed_flag = data.get("dreamzero_packed")
+        if packed_flag is not None and bool(
+            packed_flag.reshape(-1)[0].item()
+        ):
+            return self._forward_packed(data)
+
         # Get embodiment ID.
         embodiment_id = action_input.embodiment_id
         # print("embodiment_id", embodiment_id)

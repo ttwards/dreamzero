@@ -41,6 +41,23 @@ _COMPILED_FLEX_ATTENTION: Any | None = None
 _TEACHER_FORCING_BLOCK_MASK_CACHE: dict[tuple[Any, ...], BlockMask] = {}
 
 
+def _packed_rope_apply(
+    x: torch.Tensor,
+    packed_freqs: torch.Tensor,
+) -> torch.Tensor:
+    """Apply a preassembled RoPE vector with positions reset per segment."""
+    if packed_freqs.shape[0] != x.shape[1]:
+        raise ValueError(
+            f"Packed RoPE length {packed_freqs.shape[0]} does not match "
+            f"sequence length {x.shape[1]}"
+        )
+    complex_x = torch.view_as_complex(
+        x.to(torch.float64).reshape(*x.shape[:-1], -1, 2)
+    )
+    rotated = complex_x * packed_freqs.unsqueeze(0)
+    return torch.view_as_real(rotated).flatten(3).type_as(x)
+
+
 def _get_compiled_flex_attention():
     """Return one lazily compiled FlexAttention callable per process."""
     global _COMPILED_FLEX_ATTENTION
@@ -1197,6 +1214,126 @@ class CausalWanSelfAttention(nn.Module):
 
         return noisy_image_output, noisy_action_output
 
+    def _packed_teacher_forcing_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        packed_layout: dict[str, Any],
+    ) -> torch.Tensor:
+        """Run isolated teacher forcing for each logical packed segment.
+
+        Q/K/V projections have already run once over the fixed physical
+        sequence. The calls below contain no trainable parameters, so a pack
+        may contain one or two real segments without changing ZeRO's module
+        execution order.
+        """
+        roped_q = _packed_rope_apply(q, packed_layout["rope_freqs"])
+        roped_k = _packed_rope_apply(k, packed_layout["rope_freqs"])
+        output = torch.zeros_like(v)
+
+        for segment in packed_layout["segments"]:
+            clean_start, clean_end = segment["clean_range"]
+            noisy_start, noisy_end = segment["noisy_range"]
+            action_start, action_end = segment["action_range"]
+            state_start, state_end = segment["state_range"]
+            clean_frames = segment["latent_frames"]
+            action_horizon = segment["action_horizon"]
+            state_horizon = segment["state_horizon"]
+
+            clean_q = roped_q[:, clean_start:clean_end]
+            clean_k = roped_k[:, clean_start:clean_end]
+            clean_v = v[:, clean_start:clean_end]
+            noisy_q = roped_q[:, noisy_start:noisy_end]
+            noisy_k = roped_k[:, noisy_start:noisy_end]
+            noisy_v = v[:, noisy_start:noisy_end]
+            action_q = roped_q[:, action_start:action_end]
+            action_k = roped_k[:, action_start:action_end]
+            action_v = v[:, action_start:action_end]
+            state_q = roped_q[:, state_start:state_end]
+            state_k = roped_k[:, state_start:state_end]
+            state_v = v[:, state_start:state_end]
+
+            if self.teacher_forcing_attn_backend == "grouped":
+                clean_output = self._process_clean_image_only(
+                    clean_q,
+                    clean_k,
+                    clean_v,
+                    clean_frames,
+                    reuse_contiguous_prefix=True,
+                )
+                noisy_output, action_output = (
+                    self._process_noisy_image_action_blocks_grouped(
+                        noisy_q,
+                        noisy_k,
+                        noisy_v,
+                        action_q,
+                        action_k,
+                        action_v,
+                        clean_k,
+                        clean_v,
+                        state_k,
+                        state_v,
+                        clean_frames,
+                        action_horizon,
+                        state_horizon,
+                    )
+                )
+                state_output = self._process_state_blocks_grouped(
+                    state_q,
+                    state_k,
+                    state_v,
+                    state_horizon,
+                )
+            else:
+                clean_output = self._process_clean_image_only(
+                    clean_q,
+                    clean_k,
+                    clean_v,
+                    clean_frames,
+                )
+                noisy_output = self._process_noisy_image_blocks(
+                    noisy_q,
+                    noisy_k,
+                    noisy_v,
+                    clean_k,
+                    clean_v,
+                    action_k,
+                    action_v,
+                    state_k,
+                    state_v,
+                    clean_frames,
+                    action_horizon,
+                    state_horizon,
+                )
+                action_output = self._process_noisy_action_blocks(
+                    action_q,
+                    action_k,
+                    action_v,
+                    clean_k,
+                    clean_v,
+                    noisy_k,
+                    noisy_v,
+                    state_k,
+                    state_v,
+                    clean_frames,
+                    action_horizon,
+                    state_horizon,
+                )
+                state_output = self._process_state_blocks(
+                    state_q,
+                    state_k,
+                    state_v,
+                    state_horizon,
+                )
+
+            output[:, clean_start:clean_end] = clean_output
+            output[:, noisy_start:noisy_end] = noisy_output
+            output[:, action_start:action_end] = action_output
+            output[:, state_start:state_end] = state_output
+
+        return output
+
     def forward(
         self,
         x: torch.Tensor,
@@ -1207,6 +1344,7 @@ class CausalWanSelfAttention(nn.Module):
         kv_cache: torch.Tensor | None = None,
         current_start_frame: int = 0,
         is_tf: bool = True,
+        packed_layout: dict[str, Any] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         r"""
         Args:
@@ -1227,7 +1365,19 @@ class CausalWanSelfAttention(nn.Module):
 
         updated_kv_cache: torch.Tensor | None = None
 
-        if kv_cache is None:
+        if packed_layout is not None:
+            if kv_cache is not None or not is_tf:
+                raise ValueError(
+                    "Packed DreamZero is supported only for cache-free "
+                    "teacher-forcing training"
+                )
+            x = self._packed_teacher_forcing_attention(
+                q,
+                k,
+                v,
+                packed_layout,
+            )
+        elif kv_cache is None:
             if is_tf:
                 # Teacher forcing training.
                 if action_register_length is not None:
@@ -1742,6 +1892,7 @@ class CausalWanAttentionBlock(nn.Module):
         crossattn_cache: torch.Tensor | None = None,
         current_start_frame: int = 0,
         is_tf: bool = True,
+        packed_layout: dict[str, Any] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         r"""
         Args:
@@ -1771,6 +1922,7 @@ class CausalWanAttentionBlock(nn.Module):
             kv_cache=kv_cache,
             is_tf=is_tf,
             current_start_frame=current_start_frame,
+            packed_layout=packed_layout,
         )
         gate_self = _aligned_timestep_modulation_part(e, 2, L)
         x = _apply_residual_gate(
@@ -1783,7 +1935,18 @@ class CausalWanAttentionBlock(nn.Module):
 
         # cross-attention & ffn function
         def cross_attn_ffn(x, context):
-            x = x + self.cross_attn(self.norm3(x), context)
+            normalized_cross = self.norm3(x)
+            if packed_layout is None:
+                cross_output = self.cross_attn(normalized_cross, context)
+            else:
+                cross_output = self.cross_attn(
+                    normalized_cross,
+                    context,
+                    packed_segment_token_indices=packed_layout[
+                        "segment_token_indices"
+                    ],
+                )
+            x = x + cross_output
             shift_ffn = _aligned_timestep_modulation_part(e, 3, L)
             scale_ffn = _aligned_timestep_modulation_part(e, 4, L)
             normalized = self.norm2(x)
@@ -2603,6 +2766,225 @@ class CausalWanModel(ModelMixin, ConfigMixin):
 
         return video_noise_pred, action_noise_pred, updated_kv_caches
 
+    def _build_packed_training_layout(
+        self,
+        *,
+        grid_size: torch.Tensor,
+        packed_num_chunks: torch.Tensor,
+        packed_chunk_capacity: int,
+        packed_max_segments: int,
+    ) -> dict[str, Any]:
+        if packed_num_chunks.shape != (1, packed_max_segments):
+            raise ValueError(
+                "Packed chunk metadata must have shape "
+                f"[1,{packed_max_segments}], got "
+                f"{tuple(packed_num_chunks.shape)}"
+            )
+        chunk_counts = tuple(
+            int(value)
+            for value in packed_num_chunks.detach().cpu().reshape(-1).tolist()
+        )
+        if any(value < 0 for value in chunk_counts):
+            raise ValueError(f"Negative packed chunk count: {chunk_counts}")
+        if sum(chunk_counts) > packed_chunk_capacity:
+            raise ValueError(
+                f"Packed chunks {chunk_counts} exceed capacity "
+                f"{packed_chunk_capacity}"
+            )
+
+        latent_capacity, latent_height, latent_width = grid_size.tolist()
+        expected_latent_capacity = (
+            2 * packed_chunk_capacity + packed_max_segments
+        )
+        if latent_capacity != expected_latent_capacity:
+            raise ValueError(
+                "Packed latent capacity mismatch: "
+                f"{latent_capacity} != {expected_latent_capacity}"
+            )
+        actual_frame_seqlen = latent_height * latent_width
+        if actual_frame_seqlen != self.frame_seqlen:
+            raise ValueError(
+                f"Packed frame token count {actual_frame_seqlen} does not "
+                f"match configured frame_seqlen={self.frame_seqlen}"
+            )
+
+        device = self.patch_embedding.weight.device
+        video_token_capacity = latent_capacity * self.frame_seqlen
+        action_token_capacity = (
+            packed_chunk_capacity * self.num_action_per_block
+        )
+        state_token_capacity = (
+            packed_chunk_capacity * self.num_state_per_block
+        )
+        noisy_video_base = video_token_capacity
+        action_base = 2 * video_token_capacity
+        state_base = action_base + action_token_capacity
+        total_length = state_base + state_token_capacity
+
+        video_freq_parts: list[torch.Tensor] = []
+        action_freq_parts: list[torch.Tensor] = []
+        state_freq_parts: list[torch.Tensor] = []
+        segments: list[dict[str, Any]] = []
+        segment_token_indices: list[torch.Tensor] = []
+        frame_cursor = 0
+        action_cursor = 0
+        state_cursor = 0
+
+        for chunk_count in chunk_counts:
+            if chunk_count == 0:
+                segment_token_indices.append(
+                    torch.empty(0, dtype=torch.long, device=device)
+                )
+                continue
+
+            latent_frames = (
+                chunk_count * self.num_frame_per_block + 1
+            )
+            action_horizon = chunk_count * self.num_action_per_block
+            state_horizon = chunk_count * self.num_state_per_block
+            local_grid = torch.tensor(
+                [latent_frames, latent_height, latent_width],
+                dtype=torch.long,
+                device=grid_size.device,
+            )
+            video_freq_parts.append(
+                self._create_freqs(local_grid, start_frame=0)
+            )
+            action_freq_parts.append(
+                self.freqs_action[:action_horizon].view(
+                    action_horizon,
+                    1,
+                    -1,
+                )
+            )
+            state_freq_parts.append(
+                self.freqs_state[:state_horizon].view(
+                    state_horizon,
+                    1,
+                    -1,
+                )
+            )
+
+            clean_range = (
+                frame_cursor * self.frame_seqlen,
+                (frame_cursor + latent_frames) * self.frame_seqlen,
+            )
+            noisy_range = (
+                noisy_video_base + clean_range[0],
+                noisy_video_base + clean_range[1],
+            )
+            action_range = (
+                action_base + action_cursor,
+                action_base + action_cursor + action_horizon,
+            )
+            state_range = (
+                state_base + state_cursor,
+                state_base + state_cursor + state_horizon,
+            )
+            segments.append(
+                {
+                    "latent_frames": latent_frames,
+                    "action_horizon": action_horizon,
+                    "state_horizon": state_horizon,
+                    "clean_range": clean_range,
+                    "noisy_range": noisy_range,
+                    "action_range": action_range,
+                    "state_range": state_range,
+                }
+            )
+            segment_token_indices.append(
+                torch.cat(
+                    [
+                        torch.arange(*clean_range, device=device),
+                        torch.arange(*noisy_range, device=device),
+                        torch.arange(*action_range, device=device),
+                        torch.arange(*state_range, device=device),
+                    ]
+                )
+            )
+            frame_cursor += latent_frames
+            action_cursor += action_horizon
+            state_cursor += state_horizon
+
+        while len(segment_token_indices) < packed_max_segments:
+            segment_token_indices.append(
+                torch.empty(0, dtype=torch.long, device=device)
+            )
+
+        if video_freq_parts:
+            video_freqs = torch.cat(video_freq_parts, dim=0)
+            freq_dtype = video_freqs.dtype
+            freq_width = video_freqs.shape[-1]
+        else:
+            # Training packs always contain a real sample, but keep the layout
+            # builder total so failures are explicit rather than shape-driven.
+            template = self._create_freqs(
+                torch.tensor(
+                    [1, latent_height, latent_width],
+                    dtype=torch.long,
+                    device=grid_size.device,
+                ),
+                start_frame=0,
+            )
+            video_freqs = template[:0]
+            freq_dtype = template.dtype
+            freq_width = template.shape[-1]
+
+        def identity_freqs(length: int) -> torch.Tensor:
+            return torch.ones(
+                length,
+                1,
+                freq_width,
+                dtype=freq_dtype,
+                device=device,
+            )
+
+        video_padding = video_token_capacity - video_freqs.shape[0]
+        video_freqs = torch.cat(
+            [video_freqs, identity_freqs(video_padding)],
+            dim=0,
+        )
+        action_freqs = (
+            torch.cat(action_freq_parts, dim=0)
+            if action_freq_parts
+            else identity_freqs(0)
+        )
+        action_freqs = torch.cat(
+            [
+                action_freqs,
+                identity_freqs(action_token_capacity - action_freqs.shape[0]),
+            ],
+            dim=0,
+        )
+        state_freqs = (
+            torch.cat(state_freq_parts, dim=0)
+            if state_freq_parts
+            else identity_freqs(0)
+        )
+        state_freqs = torch.cat(
+            [
+                state_freqs,
+                identity_freqs(state_token_capacity - state_freqs.shape[0]),
+            ],
+            dim=0,
+        )
+        rope_freqs = torch.cat(
+            [video_freqs, video_freqs, action_freqs, state_freqs],
+            dim=0,
+        )
+        if rope_freqs.shape[0] != total_length:
+            raise AssertionError(
+                f"Packed RoPE length {rope_freqs.shape[0]} != {total_length}"
+            )
+
+        return {
+            "segments": segments,
+            "segment_token_indices": segment_token_indices,
+            "rope_freqs": rope_freqs,
+            "total_length": total_length,
+            "chunk_counts": chunk_counts,
+        }
+
     def _forward_train(
         self,
         x,
@@ -2617,6 +2999,9 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         action=None,
         state=None,
         embodiment_id=None,
+        packed_num_chunks=None,
+        packed_chunk_capacity=None,
+        packed_max_segments=None,
     ):
         r"""
         Forward pass through the diffusion model
@@ -2654,6 +3039,18 @@ class CausalWanModel(ModelMixin, ConfigMixin):
             grid_size=grid_size,
             start_frame=0,
         )
+        packed_layout = None
+        if packed_num_chunks is not None:
+            if packed_chunk_capacity is None or packed_max_segments is None:
+                raise ValueError(
+                    "Packed training requires chunk capacity and max segments"
+                )
+            packed_layout = self._build_packed_training_layout(
+                grid_size=grid_size,
+                packed_num_chunks=packed_num_chunks,
+                packed_chunk_capacity=int(packed_chunk_capacity),
+                packed_max_segments=int(packed_max_segments),
+            )
 
         x = x.flatten(start_dim=2).transpose(1, 2)
         assert x.shape[1] == seq_len
@@ -2695,12 +3092,29 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         e0 = e0.unflatten(dim=2, sizes=(6, self.dim))
 
         # context
-        assert context.shape[1] == self.text_len
+        if packed_layout is None:
+            assert context.shape[1] == self.text_len
+        else:
+            if (
+                context.ndim != 4
+                or context.shape[0] != 1
+                or context.shape[1] != int(packed_max_segments)
+                or context.shape[2] != self.text_len
+            ):
+                raise ValueError(
+                    "Packed text context must have shape "
+                    f"[1,{packed_max_segments},{self.text_len},D], got "
+                    f"{tuple(context.shape)}"
+                )
         context = self.text_embedding(context)
 
         if clip_feature is not None:
             clip_embedding = self.img_emb(clip_feature)
-            context = torch.cat([clip_embedding, context], dim=1)
+            context_dim = 1 if packed_layout is None else 2
+            context = torch.cat(
+                [clip_embedding, context],
+                dim=context_dim,
+            )
 
         if clean_x is not None:
             if y is not None and self.concat_first_frame_latent:
@@ -2722,6 +3136,12 @@ class CausalWanModel(ModelMixin, ConfigMixin):
             e0_clean = e0_clean.unflatten(dim=2, sizes=(6, self.dim))
             e0 = torch.cat([e0_clean, e0], dim=1)
 
+        if packed_layout is not None and x.shape[1] != packed_layout["total_length"]:
+            raise ValueError(
+                f"Packed transformer sequence has length {x.shape[1]}, "
+                f"expected {packed_layout['total_length']}"
+            )
+
         # arguments
         kwargs = dict(
             e=e0,
@@ -2731,6 +3151,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
             action_register_length=action_register_length,
             context=context,
             is_tf=clean_x is not None,
+            packed_layout=packed_layout,
         )
 
         def create_custom_forward(module):

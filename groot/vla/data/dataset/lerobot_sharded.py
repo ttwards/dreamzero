@@ -17,6 +17,7 @@ from .lerobot import (
     LeRobotSingleDataset,
     select_trajectory_rows,
 )
+from .dreamzero_packing import pack_transformed_samples
 
 
 class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
@@ -1319,6 +1320,10 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         shard_sampling_rate: float = 0.5,
         num_shards_to_sample: int = 2**20,
         allow_padding_at_end: bool = False,
+        pack_chunk_capacity: int | None = None,
+        pack_max_segments: int = 2,
+        pack_action_horizon: int = 24,
+        pack_pending_limit: int = 8,
     ):
         """
         Initialize the mixture dataset.
@@ -1345,6 +1350,21 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         # Set properties
         self.shard_sampling_rate = shard_sampling_rate
         self.num_shards_to_sample = num_shards_to_sample
+        self.pack_chunk_capacity = pack_chunk_capacity
+        self.pack_max_segments = pack_max_segments
+        self.pack_action_horizon = pack_action_horizon
+        self.pack_pending_limit = pack_pending_limit
+        if self.pack_chunk_capacity is not None:
+            if self.pack_chunk_capacity <= 0:
+                raise ValueError(
+                    "pack_chunk_capacity must be positive, got "
+                    f"{self.pack_chunk_capacity}"
+                )
+            if self.pack_max_segments != 2:
+                raise ValueError(
+                    "DreamZero packed training currently requires "
+                    f"pack_max_segments=2, got {self.pack_max_segments}"
+                )
 
         # Calculate shard sampling weights
         all_shard_sampling_weights = []
@@ -1488,6 +1508,19 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         )
 
     def __iter__(self):
+        samples = self._iter_transformed_samples()
+        if self.pack_chunk_capacity is None:
+            yield from samples
+            return
+        yield from pack_transformed_samples(
+            samples,
+            chunk_capacity=self.pack_chunk_capacity,
+            max_segments=self.pack_max_segments,
+            action_horizon=self.pack_action_horizon,
+            pending_limit=self.pack_pending_limit,
+        )
+
+    def _iter_transformed_samples(self):
         """Iterate over the dataset."""
 
         # Not supported: balance_trajectory_weights=False
