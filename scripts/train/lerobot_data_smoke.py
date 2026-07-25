@@ -36,6 +36,24 @@ with initialize_config_dir(config_dir=CONFIG_DIR, version_base=None):
             # Match the training launcher: load the tokenizer from the local
             # checkpoint instead of the HuggingFace hub.
             f"tokenizer_path={TOKENIZER_DIR}",
+            # Mirror the model/action geometry overrides from
+            # egosteer_lerobot_training.sh so the transform pipeline sees the
+            # same action_horizon/chunk layout as production.
+            "model=dreamzero/vla",
+            "model/dreamzero/action_head=wan_flow_matching_action_tf",
+            "model/dreamzero/transform=dreamzero_cotrain",
+            "num_frames=33",
+            "action_horizon=24",
+            "num_frame_per_block=2",
+            "num_action_per_block=24",
+            "num_state_per_block=1",
+            "num_views=2",
+            "max_state_dim=64",
+            "max_action_dim=48",
+            "max_chunk_size=4",
+            "image_resolution_width=320",
+            "image_resolution_height=176",
+            "frame_seqlen=880",
             "output_dir=/tmp/dreamzero-data-smoke",
             "dataset_shard_sampling_rate=0.1",
         ],
