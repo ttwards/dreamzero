@@ -228,11 +228,28 @@ class StreamingStats:
         if self.reservoir_size:
             left_n = min(left_count, self.reservoir_size)
             right_n = min(right_count, self.reservoir_size)
-            samples = np.concatenate((self.reservoir[:left_n], other.reservoir[:right_n]))
-            if len(samples) > self.reservoir_size:
-                indices = self.rng.choice(len(samples), self.reservoir_size, replace=False)
-                samples = samples[indices]
-            self.reservoir[: len(samples)] = samples
+            sample_size = min(total, self.reservoir_size)
+            # Each input reservoir is a uniform sample of its full population.
+            # Draw how many output slots come from each population first, then
+            # select that many entries from its reservoir.  Concatenating the
+            # two reservoirs and sampling them uniformly would overweight a
+            # small Parquet file whenever both reservoirs are full.
+            left_take = int(
+                self.rng.hypergeometric(
+                    ngood=left_count,
+                    nbad=right_count,
+                    nsample=sample_size,
+                )
+            )
+            right_take = sample_size - left_take
+            merged = np.empty((sample_size, self.reservoir.shape[1]), dtype=np.float32)
+            if left_take:
+                left_indices = self.rng.choice(left_n, left_take, replace=False)
+                merged[:left_take] = self.reservoir[left_indices]
+            if right_take:
+                right_indices = self.rng.choice(right_n, right_take, replace=False)
+                merged[left_take:] = other.reservoir[right_indices]
+            self.reservoir[:sample_size] = merged
 
 
 
