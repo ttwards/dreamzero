@@ -65,12 +65,13 @@ export TEACHER_FORCING_ATTN_BACKEND="${TEACHER_FORCING_ATTN_BACKEND:-grouped}"
 export TORCH_COMPILE="${TORCH_COMPILE:-false}"
 export TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
-export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
+export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-auto}"
 export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
-# Default compile scope keeps the trainable Wan DiT and frozen T5/CLIP
-# encoders as separate graphs. VAE is stateful and can be tested separately
-# with TORCH_COMPILE_SCOPE=vae; it is not part of the production default.
-export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_frozen}"
+# Compile each repeated Wan transformer block as a reusable region. This keeps
+# ZeRO-3 gather/release hooks outside Dynamo and avoids tracing one giant graph
+# through 40 checkpointed blocks. Frozen T5/CLIP remain separate targets. VAE
+# is stateful and can be tested separately with TORCH_COMPILE_SCOPE=vae.
+export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks_frozen}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 # This setting is per rank. Eight local ranks times 12 workers gives a
 # 96-worker whole-node compilation budget without spawning the default

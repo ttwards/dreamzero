@@ -337,8 +337,13 @@ class TargetedCompileCallback(TrainerCallback):
     ZeRO parameter handles unchanged, then replaces only selected ``forward``
     callables after the DeepSpeed engine is ready.
 
-    Supported scopes are ``wan``, ``frozen``, ``wan_frozen``, and ``vae``.  The
-    ``frozen`` scopes intentionally target only T5 and CLIP: the VAE keeps a
+    ``wan_blocks`` applies regional compilation to each repeated Wan transformer
+    block.  DeepSpeed's ZeRO-3 hooks remain on the module call boundary, outside
+    the compiled ``forward``.  Because Dynamo caches by Python code object, the
+    generated block graphs can be reused by all structurally identical blocks.
+    ``wan`` retains the whole-Wan target for diagnostics and comparison.
+
+    The ``frozen`` scopes intentionally target only T5 and CLIP: the VAE keeps a
     stateful causal cache whose shape changes between the conditioning and
     training calls, so it is exposed as a separate opt-in scope.  The launcher
     uses ``all`` to request the original whole-model Accelerate path explicitly.
@@ -367,7 +372,7 @@ class TargetedCompileCallback(TrainerCallback):
         return current
 
     @staticmethod
-    def _compile_forward(owner, attribute, label, compile_kwargs):
+    def _compile_forward(owner, attribute, label, compile_kwargs, *, announce=True):
         forward = getattr(owner, attribute)
         if getattr(forward, "_dreamzero_target_compile", False):
             return False
@@ -375,8 +380,24 @@ class TargetedCompileCallback(TrainerCallback):
         # Mark the bound callable before assigning it back to the instance.
         setattr(compiled, "_dreamzero_target_compile", True)
         setattr(owner, attribute, compiled)
-        print(f"Targeted torch.compile enabled: {label}", flush=True)
+        if announce:
+            print(f"Targeted torch.compile enabled: {label}", flush=True)
         return True
+
+    @staticmethod
+    def _parse_dynamic(value: str | None) -> bool | None:
+        """Parse the three torch.compile dynamic-shape modes."""
+        normalized = (value or "auto").strip().lower()
+        if normalized in {"auto", "none", ""}:
+            return None
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError(
+            f"Unsupported TORCH_COMPILE_DYNAMIC={value!r}; "
+            "use auto, true, or false"
+        )
 
     @staticmethod
     def _disable_zero3_collectives_for_dynamo():
@@ -443,8 +464,9 @@ class TargetedCompileCallback(TrainerCallback):
         compile_kwargs = {
             "backend": os.environ.get("TORCH_COMPILE_BACKEND", "inductor"),
             "mode": os.environ.get("TORCH_COMPILE_MODE") or "default",
-            "dynamic": os.environ.get("TORCH_COMPILE_DYNAMIC", "false").lower()
-            in {"1", "true", "yes", "on"},
+            "dynamic": self._parse_dynamic(
+                os.environ.get("TORCH_COMPILE_DYNAMIC", "auto")
+            ),
             "fullgraph": os.environ.get("TORCH_COMPILE_FULLGRAPH", "false").lower()
             in {"1", "true", "yes", "on"},
         }
@@ -457,9 +479,16 @@ class TargetedCompileCallback(TrainerCallback):
             raise RuntimeError("Targeted compile could not find model.action_head")
 
         targets = []
+        regional_blocks = []
         if self.scope in {"wan", "wan_frozen"}:
             targets.append((action_head.model, "forward", "Wan DiT"))
-        if self.scope in {"frozen", "wan_frozen"}:
+        if self.scope in {"wan_blocks", "wan_blocks_frozen"}:
+            regional_blocks = list(getattr(action_head.model, "blocks", ()))
+            if not regional_blocks:
+                raise RuntimeError(
+                    "Targeted regional compile could not find action_head.model.blocks"
+                )
+        if self.scope in {"frozen", "wan_frozen", "wan_blocks_frozen"}:
             targets.extend(
                 [
                     (action_head.text_encoder, "forward", "frozen T5"),
@@ -468,10 +497,11 @@ class TargetedCompileCallback(TrainerCallback):
             )
         if self.scope == "vae":
             targets.append((action_head.vae.model, "encode", "frozen VAE encode"))
-        if not targets:
+        if not targets and not regional_blocks:
             raise ValueError(
                 f"Unsupported targeted compile scope={self.scope!r}; "
-                "use wan, frozen, wan_frozen, vae, or all"
+                "use wan_blocks, wan_blocks_frozen, wan, frozen, "
+                "wan_frozen, vae, or all"
             )
 
         rank = int(os.environ.get("RANK", "0"))
@@ -480,13 +510,43 @@ class TargetedCompileCallback(TrainerCallback):
                 f"Targeted torch.compile scope={self.scope} kwargs={compile_kwargs}",
                 flush=True,
             )
+        if self.scope in {"wan", "wan_frozen"}:
+            if rank == 0:
+                print(
+                    "Targeted torch.compile: keeping ZeRO-3 all-gather collectives eager",
+                    flush=True,
+                )
+            self._disable_zero3_collectives_for_dynamo()
+        elif regional_blocks and rank == 0:
             print(
-                "Targeted torch.compile: keeping ZeRO-3 all-gather collectives eager",
+                "Targeted torch.compile: compiling Wan block forwards regionally; "
+                "ZeRO-3 hooks stay outside compiled regions",
                 flush=True,
             )
-        self._disable_zero3_collectives_for_dynamo()
+
+        compiled_count = 0
+        for index, block in enumerate(regional_blocks):
+            compiled_count += self._compile_forward(
+                block,
+                "forward",
+                f"Wan block {index}",
+                compile_kwargs,
+                announce=False,
+            )
         for owner, attribute, label in targets:
-            self._compile_forward(owner, attribute, label, compile_kwargs)
+            compiled_count += self._compile_forward(
+                owner,
+                attribute,
+                label,
+                compile_kwargs,
+                announce=rank == 0,
+            )
+        if rank == 0 and regional_blocks:
+            print(
+                f"Targeted torch.compile enabled for {len(regional_blocks)} "
+                f"Wan blocks ({compiled_count} total targets)",
+                flush=True,
+            )
         self.completed = True
 
 
@@ -1906,7 +1966,9 @@ class BaseExperiment(ABC):
             "yes",
             "on",
         }
-        compile_scope = os.environ.get("TORCH_COMPILE_SCOPE", "wan_frozen").lower()
+        compile_scope = os.environ.get(
+            "TORCH_COMPILE_SCOPE", "wan_blocks_frozen"
+        ).lower()
         targeted_compile = compile_requested and compile_scope not in {"all", "none"}
         if targeted_compile:
             training_args.torch_compile = False

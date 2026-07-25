@@ -83,9 +83,9 @@ TEACHER_FORCING_ATTN_BACKEND="${TEACHER_FORCING_ATTN_BACKEND:-fragmented}"
 TORCH_COMPILE="${TORCH_COMPILE:-false}"
 TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
-TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
+TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-auto}"
 TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
-TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_frozen}"
+TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks_frozen}"
 TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 TORCHINDUCTOR_COMPILE_THREADS="${TORCHINDUCTOR_COMPILE_THREADS:-}"
 TORCHINDUCTOR_FALLBACK_RANDOM="${TORCHINDUCTOR_FALLBACK_RANDOM:-true}"
@@ -99,9 +99,9 @@ PROFILE_UPLOAD_WANDB="${PROFILE_UPLOAD_WANDB:-true}"
 PROFILE_DIR="${PROFILE_DIR:-/tmp/dreamzero-profiler/${OUTPUT_DIR##*/}}"
 
 case "$TORCH_COMPILE_SCOPE" in
-    wan|frozen|wan_frozen|vae|all|none) ;;
+    wan_blocks|wan_blocks_frozen|wan|frozen|wan_frozen|vae|all|none) ;;
     *)
-        echo "Unsupported TORCH_COMPILE_SCOPE=$TORCH_COMPILE_SCOPE; use wan, frozen, wan_frozen, vae, all, or none." >&2
+        echo "Unsupported TORCH_COMPILE_SCOPE=$TORCH_COMPILE_SCOPE; use wan_blocks, wan_blocks_frozen, wan, frozen, wan_frozen, vae, all, or none." >&2
         exit 2
         ;;
 esac
@@ -186,7 +186,9 @@ if [ "$TORCH_COMPILE" = "true" ]; then
     # These Accelerate options apply only to the explicit whole-model path.
     # Targeted mode compiles selected forward methods in TargetedCompileCallback.
     if [ "$TRAINER_TORCH_COMPILE" = "true" ]; then
-        export ACCELERATE_DYNAMO_USE_DYNAMIC="$TORCH_COMPILE_DYNAMIC"
+        if [ "$TORCH_COMPILE_DYNAMIC" != "auto" ]; then
+            export ACCELERATE_DYNAMO_USE_DYNAMIC="$TORCH_COMPILE_DYNAMIC"
+        fi
         export ACCELERATE_DYNAMO_USE_FULLGRAPH="$TORCH_COMPILE_FULLGRAPH"
     fi
     export TORCHINDUCTOR_CACHE_DIR
