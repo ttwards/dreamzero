@@ -2,7 +2,7 @@
 
 # Template for the LeRobot v3 dual-arm dexterous-hand dataset.
 defaults:
-  - dreamzero/base_48_wan_fine_aug_relative
+  - /data/dreamzero/base_48_wan_fine_aug_relative
   - _self_
 
 # EgoVLA order: dual wrist position 6 + dual wrist rotation6d 12
