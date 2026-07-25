@@ -55,6 +55,8 @@ PROFILE_ACTIVE_STEPS="${PROFILE_ACTIVE_STEPS:-2}"
 PROFILE_RANKS="${PROFILE_RANKS:-0}"
 PROFILE_DIR="${PROFILE_DIR:-$OUTPUT_DIR/profiling}"
 TORCH_COMPILE="${TORCH_COMPILE:-false}"
+TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
+TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-null}"
 SKIP_FINAL_SAVE="${SKIP_FINAL_SAVE:-false}"
 SAVE_STRATEGY="${SAVE_STRATEGY:-steps}"
 
@@ -98,6 +100,16 @@ export TOKENIZERS_PARALLELISM=false
 export NO_ALBUMENTATIONS_UPDATE=1
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export TORCH_COMPILE
+
+# Transformers treats a non-null backend or mode as an implicit whole-model
+# compile request.  Clear both when compile is disabled so a smoke run stays
+# eager instead of compiling every rank on its first batch.
+TRAINER_TORCH_COMPILE_BACKEND="$TORCH_COMPILE_BACKEND"
+TRAINER_TORCH_COMPILE_MODE="$TORCH_COMPILE_MODE"
+if [[ "$TORCH_COMPILE" != "true" ]]; then
+    TRAINER_TORCH_COMPILE_BACKEND=null
+    TRAINER_TORCH_COMPILE_MODE=null
+fi
 
 if [[ "$DATALOADER_NUM_WORKERS" == "0" ]]; then
     DATALOADER_PERSISTENT_WORKERS=false
@@ -154,6 +166,8 @@ TRAIN_COMMAND=(
     "dataloader_prefetch_factor=$DATALOADER_PREFETCH_FACTOR"
     dataloader_non_blocking=true
     "torch_compile=$TORCH_COMPILE"
+    "torch_compile_backend=$TRAINER_TORCH_COMPILE_BACKEND"
+    "torch_compile_mode=$TRAINER_TORCH_COMPILE_MODE"
     "save_strategy=$SAVE_STRATEGY"
     save_steps=500
     save_total_limit=8
@@ -194,6 +208,7 @@ echo "DreamZero LeRobot launch: Wan2.1-I2V-14B full fine-tune"
 echo "gpus=$NUM_GPUS global_batch=$GLOBAL_BATCH_SIZE data=$DATA_ROOT"
 echo "deepspeed=$DEEPSPEED_CONFIG output=$OUTPUT_DIR"
 echo "shard_sampling_rate=$DATASET_SHARD_SAMPLING_RATE shard_steps=${DATASET_NUM_STEPS_PER_SHARD:-default}"
+echo "torch_compile=$TORCH_COMPILE backend=$TRAINER_TORCH_COMPILE_BACKEND mode=$TRAINER_TORCH_COMPILE_MODE"
 echo "torch_profiler=$TORCH_PROFILE profile_dir=$PROFILE_DIR"
 
 exec "$PYTHON_BIN" -m torch.distributed.run \
