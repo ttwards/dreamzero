@@ -19,11 +19,6 @@ export RDMA_IFNAME="${RDMA_IFNAME:-${MLP_IFNAME:-eth0}}"
 : "${NNODES:?Volcano did not provide MLP_WORKER_NUM}"
 : "${GPUS_PER_NODE:?Volcano did not provide MLP_WORKER_GPU}"
 
-if [[ "$NNODES" != "8" || "$GPUS_PER_NODE" != "8" ]]; then
-    echo "Expected exactly 8 nodes x 8 GPUs, received ${NNODES} x ${GPUS_PER_NODE}" >&2
-    exit 2
-fi
-
 : "${WANDB_API_KEY:?Set WANDB_API_KEY in the Volcano Secret/environment}"
 
 # Production data/model configuration. The user-facing launch command only
