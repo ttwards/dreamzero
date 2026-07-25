@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Standalone single-node launcher for the EgoSteer LeRobot v3 48D export.
+# Single- or multi-node launcher for the EgoSteer LeRobot v3 48D export.
 #
 # Defaults target Wan2.1-I2V-14B full fine-tuning.  The production dataset
 # provides text_embs/<sha1(raw task text)[:16]>.pt. The data loader keeps only
@@ -26,12 +26,20 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
 fi
 
 NUM_GPUS="${NUM_GPUS:-$(nvidia-smi -L | wc -l | tr -d ' ')}"
+NNODES="${NNODES:-1}"
+GPUS_PER_NODE="${GPUS_PER_NODE:-$NUM_GPUS}"
+MACHINE_RANK="${MACHINE_RANK:-0}"
+MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
+MASTER_PORT="${MASTER_PORT:-29500}"
+WORLD_SIZE=$((NNODES * GPUS_PER_NODE))
 DATA_ROOT="${EGO_STEER_DATA_ROOT:-/efs-exp/agent-workspace/xuwenxi/datasets/realworld-dreamzero-lerobot/dagger}"
+DATA_CONFIG="${DATA_CONFIG:-dreamzero/dual_arm_dexterous_hand_relative}"
+DATA_ROOT_CONFIG_KEY="${DATA_ROOT_CONFIG_KEY:-dual_arm_dexterous_hand_data_root}"
 OUTPUT_DIR="${OUTPUT_DIR:-/efs-exp/agent-workspace/xuwenxi/outputs/dreamzero_egosteer_lerobot}"
 WAN_CKPT_DIR="${WAN_CKPT_DIR:-/efs-exp/agent-workspace/xuwenxi/checkpoints/Wan2.1-I2V-14B-480P}"
 TOKENIZER_DIR="${TOKENIZER_DIR:-/efs-exp/agent-workspace/xuwenxi/checkpoints/umt5-xxl}"
 PRETRAINED_MODEL_PATH="${PRETRAINED_MODEL_PATH:-/efs-exp/agent-workspace/xuwenxi/checkpoints/DreamZero-AgiBot}"
-GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-$NUM_GPUS}"
+GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-$WORLD_SIZE}"
 MAX_STEPS="${MAX_STEPS:-100000}"
 REPORT_TO="${REPORT_TO:-wandb}"
 WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
@@ -52,6 +60,10 @@ DATASET_NUM_STEPS_PER_SHARD="${DATASET_NUM_STEPS_PER_SHARD:-}"
 DATASET_NUM_SHARDS_TO_SAMPLE="${DATASET_NUM_SHARDS_TO_SAMPLE:-}"
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 DATALOADER_PREFETCH_FACTOR="${DATALOADER_PREFETCH_FACTOR:-2}"
+DO_EVAL="${DO_EVAL:-false}"
+EVAL_STRATEGY="${EVAL_STRATEGY:-no}"
+EVAL_STEPS="${EVAL_STEPS:-500}"
+PER_DEVICE_EVAL_BATCH_SIZE="${PER_DEVICE_EVAL_BATCH_SIZE:-1}"
 TORCH_PROFILE="${TORCH_PROFILE:-false}"
 PROFILE_START_STEP="${PROFILE_START_STEP:-50}"
 PROFILE_WARMUP_STEPS="${PROFILE_WARMUP_STEPS:-1}"
@@ -63,12 +75,33 @@ TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-null}"
 SKIP_FINAL_SAVE="${SKIP_FINAL_SAVE:-false}"
 SAVE_STRATEGY="${SAVE_STRATEGY:-steps}"
+SAVE_STEPS="${SAVE_STEPS:-500}"
+SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-8}"
+
+if [[ "$DATA_CONFIG" == "dreamzero/dual_arm_dexterous_hand_mixture_relative" ]]; then
+    DATASET_ROOTS=(
+        "$DATA_ROOT/dagger"
+        "$DATA_ROOT/multitask"
+        "$DATA_ROOT/singletask"
+        "$DATA_ROOT/val"
+    )
+else
+    DATASET_ROOTS=("$DATA_ROOT")
+fi
+for dataset_root in "${DATASET_ROOTS[@]}"; do
+    for required in \
+        "$dataset_root/meta/info.json" \
+        "$dataset_root/meta/modality.json" \
+        "$dataset_root/meta/relative_stats_dreamzero.json" \
+        "$dataset_root/text_embs"; do
+        if [[ ! -e "$required" ]]; then
+            echo "Missing required path: $required" >&2
+            exit 2
+        fi
+    done
+done
 
 for required in \
-    "$DATA_ROOT/meta/info.json" \
-    "$DATA_ROOT/meta/modality.json" \
-    "$DATA_ROOT/meta/relative_stats_dreamzero.json" \
-    "$DATA_ROOT/text_embs" \
     "$WAN_CKPT_DIR/models_t5_umt5-xxl-enc-bf16.pth" \
     "$WAN_CKPT_DIR/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth" \
     "$WAN_CKPT_DIR/Wan2.1_VAE.pth" \
@@ -88,8 +121,12 @@ if [[ "$NUM_GPUS" -lt 1 ]]; then
     echo "NUM_GPUS must be positive" >&2
     exit 2
 fi
-if (( GLOBAL_BATCH_SIZE % NUM_GPUS != 0 )); then
-    echo "GLOBAL_BATCH_SIZE must be divisible by NUM_GPUS" >&2
+if (( GLOBAL_BATCH_SIZE % WORLD_SIZE != 0 )); then
+    echo "GLOBAL_BATCH_SIZE must be divisible by world size $WORLD_SIZE" >&2
+    exit 2
+fi
+if (( NNODES > 1 )) && [[ "$MASTER_ADDR" == "127.0.0.1" ]]; then
+    echo "Multi-node training requires MASTER_ADDR from the container platform" >&2
     exit 2
 fi
 
@@ -104,6 +141,7 @@ export TOKENIZERS_PARALLELISM=false
 export NO_ALBUMENTATIONS_UPDATE=1
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export TORCH_COMPILE
+export PYTHON_BIN
 
 # Transformers treats a non-null backend or mode as an implicit whole-model
 # compile request.  Clear both when compile is disabled so a smoke run stays
@@ -127,7 +165,7 @@ TRAIN_COMMAND=(
     groot/vla/experiment/experiment.py
     "report_to=$REPORT_TO"
     "wandb_project=$WANDB_PROJECT"
-    data=dreamzero/dual_arm_dexterous_hand_relative
+    "data=$DATA_CONFIG"
     model=dreamzero/vla
     model/dreamzero/action_head=wan_flow_matching_action_tf
     model/dreamzero/transform=dreamzero_cotrain
@@ -149,7 +187,7 @@ TRAIN_COMMAND=(
     # + 4 * (24 action + 1 state) = 15,940 transformer tokens.
     performance_tokens_per_sample=15940
     teacher_forcing_attn_backend=fragmented
-    "dual_arm_dexterous_hand_data_root=$DATA_ROOT"
+    "$DATA_ROOT_CONFIG_KEY=$DATA_ROOT"
     "dataset_shard_sampling_rate=$DATASET_SHARD_SAMPLING_RATE"
     "output_dir=$OUTPUT_DIR"
     "pretrained_model_path=$PRETRAINED_MODEL_PATH"
@@ -167,7 +205,10 @@ TRAIN_COMMAND=(
     bf16=true
     tf32=true
     eval_bf16=true
-    do_eval=false
+    "do_eval=$DO_EVAL"
+    "eval_strategy=$EVAL_STRATEGY"
+    "eval_steps=$EVAL_STEPS"
+    "per_device_eval_batch_size=$PER_DEVICE_EVAL_BATCH_SIZE"
     "dataloader_num_workers=$DATALOADER_NUM_WORKERS"
     dataloader_pin_memory=true
     "dataloader_persistent_workers=$DATALOADER_PERSISTENT_WORKERS"
@@ -177,8 +218,8 @@ TRAIN_COMMAND=(
     "torch_compile_backend=$TRAINER_TORCH_COMPILE_BACKEND"
     "torch_compile_mode=$TRAINER_TORCH_COMPILE_MODE"
     "save_strategy=$SAVE_STRATEGY"
-    save_steps=500
-    save_total_limit=8
+    "save_steps=$SAVE_STEPS"
+    "save_total_limit=$SAVE_TOTAL_LIMIT"
     "skip_final_save=$SKIP_FINAL_SAVE"
     save_lora_only=false
     upload_checkpoints=false
@@ -187,10 +228,10 @@ TRAIN_COMMAND=(
 )
 
 if [[ -n "$DATASET_NUM_STEPS_PER_SHARD" ]]; then
-    TRAIN_COMMAND+=("+train_dataset.dataset_kwargs.num_steps_per_shard=$DATASET_NUM_STEPS_PER_SHARD")
+    TRAIN_COMMAND+=("++train_dataset.dataset_kwargs.num_steps_per_shard=$DATASET_NUM_STEPS_PER_SHARD")
 fi
 if [[ -n "$DATASET_NUM_SHARDS_TO_SAMPLE" ]]; then
-    TRAIN_COMMAND+=("+train_dataset.mixture_kwargs.num_shards_to_sample=$DATASET_NUM_SHARDS_TO_SAMPLE")
+    TRAIN_COMMAND+=("++train_dataset.mixture_kwargs.num_shards_to_sample=$DATASET_NUM_SHARDS_TO_SAMPLE")
 fi
 if [[ "$TORCH_PROFILE" == "true" ]]; then
     TRAIN_COMMAND+=(
@@ -213,11 +254,25 @@ if [[ -n "${TRAIN_ARGS:-}" ]]; then
 fi
 
 echo "DreamZero LeRobot launch: Wan2.1-I2V-14B full fine-tune"
-echo "gpus=$NUM_GPUS global_batch=$GLOBAL_BATCH_SIZE data=$DATA_ROOT"
+echo "topology=$NNODES nodes x $GPUS_PER_NODE GPUs = $WORLD_SIZE ranks"
+echo "machine_rank=$MACHINE_RANK master=$MASTER_ADDR:$MASTER_PORT"
+echo "global_batch=$GLOBAL_BATCH_SIZE data=$DATA_ROOT config=$DATA_CONFIG"
 echo "deepspeed=$DEEPSPEED_CONFIG output=$OUTPUT_DIR"
 echo "shard_sampling_rate=$DATASET_SHARD_SAMPLING_RATE shard_steps=${DATASET_NUM_STEPS_PER_SHARD:-default}"
 echo "torch_compile=$TORCH_COMPILE backend=$TRAINER_TORCH_COMPILE_BACKEND mode=$TRAINER_TORCH_COMPILE_MODE"
 echo "torch_profiler=$TORCH_PROFILE profile_dir=$PROFILE_DIR"
+
+if (( NNODES > 1 )); then
+    exec "$PYTHON_BIN" -m torch.distributed.run \
+        --nnodes="$NNODES" \
+        --node_rank="$MACHINE_RANK" \
+        --master_addr="$MASTER_ADDR" \
+        --master_port="$MASTER_PORT" \
+        --nproc_per_node="$GPUS_PER_NODE" \
+        --no-python \
+        bash "$SCRIPT_DIR/numa_bind_wrapper.sh" \
+        "${TRAIN_COMMAND[@]}"
+fi
 
 exec "$PYTHON_BIN" -m torch.distributed.run \
     --standalone \

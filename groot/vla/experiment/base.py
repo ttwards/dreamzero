@@ -1893,6 +1893,21 @@ class BaseExperiment(ABC):
         print("Successfully dumped metadata")
 
         val_dataset = self.create_val_dataset(cfg, model)
+        if val_dataset is not None and cfg.get("val_use_train_metadata", False):
+            if not hasattr(val_dataset, "datasets"):
+                raise TypeError(
+                    "val_use_train_metadata requires a mixture validation dataset"
+                )
+            for dataset in val_dataset.datasets:
+                train_metadata = train_dataset.merged_metadata.get(dataset.tag.value)
+                if train_metadata is None:
+                    raise KeyError(
+                        "Training metadata does not contain validation embodiment "
+                        f"{dataset.tag.value!r}"
+                    )
+                dataset.set_transforms_metadata(train_metadata)
+            val_dataset.merged_metadata = train_dataset.merged_metadata
+            print("Validation transforms use merged training normalization metadata")
         data_collator = self.create_data_collator(cfg, model)
         trainer = self.create_trainer(
             cfg=cfg,

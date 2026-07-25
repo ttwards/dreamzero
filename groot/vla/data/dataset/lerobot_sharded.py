@@ -1,4 +1,5 @@
 from concurrent.futures import Future, ThreadPoolExecutor
+from itertools import islice
 import json
 from pathlib import Path
 import time
@@ -1329,6 +1330,7 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         pack_max_segments: int = 2,
         pack_action_horizon: int = 24,
         pack_pending_limit: int = 8,
+        max_samples_per_rank: int | None = None,
     ):
         """
         Initialize the mixture dataset.
@@ -1341,6 +1343,9 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
             seed (int): Random seed for sampling.
             shard_sampling_rate (float): How much data per shard to sample, in a 0-1 scale.
             num_shards_to_sample (int): The number of shards to sample.
+            max_samples_per_rank (int | None): Optional finite output budget for
+                each distributed rank. The budget is split across DataLoader
+                workers so evaluation yields exactly this many samples per rank.
         """
         super().__init__(
             data_mixture=data_mixture,
@@ -1361,6 +1366,12 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         self.pack_max_segments = pack_max_segments
         self.pack_action_horizon = pack_action_horizon
         self.pack_pending_limit = pack_pending_limit
+        self.max_samples_per_rank = max_samples_per_rank
+        if self.max_samples_per_rank is not None and self.max_samples_per_rank <= 0:
+            raise ValueError(
+                "max_samples_per_rank must be positive, got "
+                f"{self.max_samples_per_rank}"
+            )
         if self.fixed_chunk_count is not None:
             if self.fixed_chunk_count <= 0:
                 raise ValueError(
@@ -1533,22 +1544,33 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
     def __iter__(self):
         samples = self._iter_transformed_samples()
         if self.fixed_chunk_count is not None:
-            yield from filter_fixed_chunk_samples(
+            samples = filter_fixed_chunk_samples(
                 samples,
                 required_chunk_count=self.fixed_chunk_count,
                 action_horizon=self.fixed_chunk_action_horizon,
             )
-            return
-        if self.pack_chunk_capacity is None:
+        elif self.pack_chunk_capacity is not None:
+            samples = pack_transformed_samples(
+                samples,
+                chunk_capacity=self.pack_chunk_capacity,
+                max_segments=self.pack_max_segments,
+                action_horizon=self.pack_action_horizon,
+                pending_limit=self.pack_pending_limit,
+            )
+
+        if self.max_samples_per_rank is None:
             yield from samples
             return
-        yield from pack_transformed_samples(
-            samples,
-            chunk_capacity=self.pack_chunk_capacity,
-            max_segments=self.pack_max_segments,
-            action_horizon=self.pack_action_horizon,
-            pending_limit=self.pack_pending_limit,
+
+        worker_info = get_worker_info()
+        worker_id = worker_info.id if worker_info is not None else 0
+        num_workers = worker_info.num_workers if worker_info is not None else 1
+        samples_per_worker, extra_samples = divmod(
+            self.max_samples_per_rank,
+            num_workers,
         )
+        worker_limit = samples_per_worker + int(worker_id < extra_samples)
+        yield from islice(samples, worker_limit)
 
     def _iter_transformed_samples(self):
         """Iterate over the dataset."""
@@ -1629,6 +1651,8 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
 
     def __len__(self) -> int:
         """The length of the dataset."""
+        if self.max_samples_per_rank is not None:
+            return self.max_samples_per_rank
         total_length = 0
         for dataset_idx, _ in self.shards_sample_schedule:
             dataset = self.datasets[dataset_idx]

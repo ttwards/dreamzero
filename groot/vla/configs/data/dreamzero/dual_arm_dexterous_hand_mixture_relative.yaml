@@ -1,0 +1,65 @@
+# @package _global_
+
+# Production EgoSteer LeRobot v3 mixture. The three training splits share one
+# embodiment and are sampled proportional to their number of valid steps.
+defaults:
+  - dreamzero/dual_arm_dexterous_hand_relative
+  - _self_
+
+egosteer_lerobot_root: ???
+dual_arm_dexterous_hand_data_root: ${egosteer_lerobot_root}/dagger
+val_use_train_metadata: true
+
+train_dataset:
+  mixture_spec:
+    - dataset_path:
+        dual_arm_dexterous_hand:
+          - ${egosteer_lerobot_root}/dagger
+          - ${egosteer_lerobot_root}/multitask
+          - ${egosteer_lerobot_root}/singletask
+      dataset_weight: 1.0
+      distribute_weights: true
+  dataset_kwargs:
+    # Bound each worker's host-memory footprint while PyAV prefetch overlaps
+    # with the 14B model's forward/backward pass.
+    num_steps_per_shard: 1000
+
+val_dataset:
+  _target_: ${mixture_dataset_cls}
+  _convert_: object
+  mixture_spec:
+    - dataset_path:
+        dual_arm_dexterous_hand:
+          - ${egosteer_lerobot_root}/val
+      dataset_weight: 1.0
+      distribute_weights: true
+
+  dataset_class: ${single_dataset_cls}
+  all_modality_configs: ${modality_configs}
+  all_transforms: ${transforms}
+  metadata_versions: ${metadata_versions}
+  fps: ${fps}
+  dataset_kwargs:
+    video_backend: pyav
+    video_backend_kwargs:
+      thread_type: AUTO
+      thread_count: 0
+    use_global_metadata: ${use_global_metadata}
+    max_chunk_size: ${max_chunk_size}
+    relative_action: ${relative_action}
+    relative_action_keys: ${relative_action_keys}
+    relative_action_per_horizon: ${relative_action_per_horizon}
+    use_precomputed_text_embeddings: true
+    text_embedding_cache_size: 128
+    num_steps_per_shard: 1000
+  mixture_kwargs:
+    training: false
+    balance_dataset_weights: false
+    seed: 43
+    shard_sampling_rate: ${dataset_shard_sampling_rate}
+    # Four dataloader workers return one accepted fixed-4-chunk sample each,
+    # giving every distributed rank the same finite validation budget.
+    num_shards_to_sample: 4096
+    max_samples_per_rank: 4
+    fixed_chunk_count: ${max_chunk_size}
+    fixed_chunk_action_horizon: ${action_horizon}
