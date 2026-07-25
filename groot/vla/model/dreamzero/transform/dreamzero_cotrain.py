@@ -91,7 +91,10 @@ class HuggingfaceTokenizer:
 
 def collate(features: List[dict], tokenizer: AutoTokenizer, num_views=3, embodiment_tag_mapping=None) -> dict:
     batch = {}
-    keys = features[0].keys()
+    # LeRobot v3 may omit the optional precomputed embedding for a sample that
+    # has no matching cache file. Keep it only when the whole batch can use it;
+    # the action head will then fall back to the regular T5 path otherwise.
+    keys = list(dict.fromkeys(key for feature in features for key in feature))
 
     for key in keys:
         # WebDataset preserves source metadata such as ``__key__`` and
@@ -99,6 +102,8 @@ def collate(features: List[dict], tokenizer: AutoTokenizer, num_views=3, embodim
         # bad sample, but they are not model inputs and cannot be converted to
         # tensors by the numeric fallback below.
         if key.startswith("__"):
+            continue
+        if key == "task_embedding" and not all(key in elem for elem in features):
             continue
         if key == "text":
             output_values = []
@@ -634,6 +639,19 @@ class DreamTransform(InvertibleModalityTransform):
             ), "LAPA action values should be between -1 and 1"
             transformed_data["action"] = reshaped_lapa_actions
             transformed_data["action_mask"] = np.ones(actions_shape, dtype=bool)
+
+        # The LeRobot v3 cache is generated from the raw task text and is fed
+        # directly to the action head. Keep the tokenized text as a fallback,
+        # but do not use the cache when this transform may replace the raw
+        # language with a default, formalized, or dropped instruction.
+        use_precomputed_embedding = (
+            "task_embedding" in data
+            and not self.formalize_language
+            and not self.always_use_default_instruction
+            and not (self.training and self.language_dropout_prob > 1e-9)
+        )
+        if use_precomputed_embedding:
+            transformed_data["task_embedding"] = data["task_embedding"]
 
         if has_action:
             action_and_mask_keys = ["action", "action_mask", "lapa_action", "lapa_action_mask"]

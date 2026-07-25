@@ -406,10 +406,13 @@ transform_dual_arm_dexterous_hand:
       normalization_modes:
         state.left_wrist_position: q99
         state.right_wrist_position: q99
-        state.left_wrist_rotation_6d: q99
-        state.right_wrist_rotation_6d: q99
+        state.left_wrist_rotation_6d: min_max
+        state.right_wrist_rotation_6d: min_max
         state.left_fingertip_position: q99
         state.right_fingertip_position: q99
+      target_rotations:
+        state.left_wrist_rotation_6d: rotation_6d
+        state.right_wrist_rotation_6d: rotation_6d
 
     - _target_: groot.vla.data.transform.StateActionToTensor
       apply_to: ${modality_config_dual_arm_dexterous_hand.action.modality_keys}
@@ -418,10 +421,13 @@ transform_dual_arm_dexterous_hand:
       normalization_modes:
         action.left_wrist_position: q99
         action.right_wrist_position: q99
-        action.left_wrist_rotation_6d: q99
-        action.right_wrist_rotation_6d: q99
+        action.left_wrist_rotation_6d: min_max
+        action.right_wrist_rotation_6d: min_max
         action.left_fingertip_position: q99
         action.right_fingertip_position: q99
+      target_rotations:
+        action.left_wrist_rotation_6d: rotation_6d
+        action.right_wrist_rotation_6d: rotation_6d
 
     - _target_: groot.vla.data.transform.ConcatTransform
       video_concat_order: ${modality_config_dual_arm_dexterous_hand.video.modality_keys}

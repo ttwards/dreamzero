@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 import copy
 import glob
 import hashlib
@@ -38,6 +38,7 @@ LE_ROBOT_INFO_FILENAME = "meta/info.json"
 LE_ROBOT_STATS_FILENAME = "meta/stats.json"
 LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
 LE_ROBOT_TASK_EMBEDDINGS_FILENAME = "meta/task_embeddings.pt"
+LE_ROBOT_TEXT_EMBEDDINGS_DIR = "text_embs"
 LE_ROBOT_DETAILED_GLOBAL_INSTRUCTION_FILENAME = "meta/episodes_detail_global_instruction.jsonl"
 INITIAL_ACTIONS_FILENAME = "meta/initial_actions.npz"
 METADATA_DIR = Path(importlib.import_module("groot.vla.data").__file__).parent / "metadata"  # type: ignore
@@ -163,6 +164,8 @@ class LeRobotSingleDataset(Dataset):
         relative_action: bool = False,
         relative_action_keys: list[str] | None = None,
         relative_action_per_horizon: bool = False,
+        use_precomputed_text_embeddings: bool | None = None,
+        text_embedding_cache_size: int = 128,
     ):
         """
         Initialize the dataset.
@@ -183,6 +186,11 @@ class LeRobotSingleDataset(Dataset):
                 If None and relative_action is True, applies to all action keys except those containing 'gripper'.
             relative_action_per_horizon (bool): Whether to use per-horizon relative action stats. If True, will load or calculate
                 separate stats for each action horizon index from relative_horizon_stats_dreamzero.json.
+            use_precomputed_text_embeddings (bool | None): Whether to use the LeRobot v3
+                ``text_embs/<sha1(text)[:16]>.pt`` cache. ``None`` enables it automatically
+                when the v3 dataset contains a ``text_embs`` directory.
+            text_embedding_cache_size (int): Maximum number of text embeddings to retain in
+                the per-process LRU cache. Set to 0 to disable the in-memory cache.
         """
         # first check if the path directory exists
         if not Path(dataset_path).exists():
@@ -274,6 +282,9 @@ class LeRobotSingleDataset(Dataset):
         self._video_path_pattern = self._get_video_path_pattern()
         self._tasks = self._get_tasks()
         self._detailed_global_instructions = self._get_detailed_global_instructions()
+        self._text_embedding_dir = self._get_text_embedding_dir(use_precomputed_text_embeddings)
+        self._text_embedding_cache_size = max(0, int(text_embedding_cache_size))
+        self._text_embedding_cache: OrderedDict[str, torch.Tensor] = OrderedDict()
         self.curr_traj_data = None
         self.curr_traj_id = None
 
@@ -1395,6 +1406,108 @@ class LeRobotSingleDataset(Dataset):
         task_embeddings_path = self.dataset_path / LE_ROBOT_TASK_EMBEDDINGS_FILENAME
         return torch.load(task_embeddings_path)
 
+    def _get_text_embedding_dir(self, use_precomputed_text_embeddings: bool | None) -> Path | None:
+        """Resolve the optional LeRobot v3 per-text T5 embedding cache.
+
+        The exported EgoSteer v3 datasets use files named
+        ``text_embs/<sha1(raw_task_text)[:16]>.pt``.  Keep this path optional so
+        existing LeRobot v2 datasets and v3 datasets without the cache retain
+        the original text-tokenization path.
+        """
+        text_embedding_dir = self.dataset_path / LE_ROBOT_TEXT_EMBEDDINGS_DIR
+        enabled = self.is_lerobot_v3 and (
+            text_embedding_dir.exists()
+            if use_precomputed_text_embeddings is None
+            else use_precomputed_text_embeddings
+        )
+        if not enabled:
+            return None
+        if not text_embedding_dir.is_dir():
+            raise FileNotFoundError(
+                "Precomputed text embeddings were requested, but the LeRobot v3 "
+                f"embedding directory does not exist: {text_embedding_dir}"
+            )
+        return text_embedding_dir
+
+    def _load_precomputed_text_embedding(self, text: str) -> torch.Tensor | None:
+        """Load one cached UMT5 embedding by its raw task text.
+
+        Missing files intentionally return ``None``.  This lets a mixed dataset
+        fall back to the regular T5 path for samples that have no cache, while
+        batches containing only cached samples can skip T5 entirely.
+        """
+        if self._text_embedding_dir is None or not isinstance(text, str):
+            return None
+
+        text_hash = hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+        if text_hash in self._text_embedding_cache:
+            embedding = self._text_embedding_cache.pop(text_hash)
+            self._text_embedding_cache[text_hash] = embedding
+            return embedding
+
+        embedding_path = self._text_embedding_dir / f"{text_hash}.pt"
+        if not embedding_path.exists():
+            return None
+
+        try:
+            embedding = torch.load(embedding_path, map_location="cpu", weights_only=True)
+        except TypeError:
+            # ``weights_only`` is unavailable in older PyTorch versions used by
+            # some of the LeRobot training environments.
+            embedding = torch.load(embedding_path, map_location="cpu")
+
+        if isinstance(embedding, dict):
+            for key in ("embedding", "text_embedding", "prompt_emb"):
+                if key in embedding:
+                    embedding = embedding[key]
+                    break
+        if not torch.is_tensor(embedding):
+            raise TypeError(
+                f"Expected a tensor in {embedding_path}, got {type(embedding).__name__}"
+            )
+        if embedding.ndim != 2 or embedding.shape[-1] != 4096:
+            raise ValueError(
+                f"Expected a [sequence, 4096] UMT5 embedding in {embedding_path}, "
+                f"got shape {tuple(embedding.shape)}"
+            )
+        embedding = embedding.detach().to(device="cpu")
+
+        if self._text_embedding_cache_size > 0:
+            self._text_embedding_cache[text_hash] = embedding
+            while len(self._text_embedding_cache) > self._text_embedding_cache_size:
+                self._text_embedding_cache.popitem(last=False)
+        return embedding
+
+    def _maybe_add_precomputed_text_embedding(self, data: dict) -> None:
+        """Attach a cached embedding for a single-language sample if available."""
+        if self._text_embedding_dir is None:
+            return
+
+        # A single language key is required because DreamTransform may randomly
+        # choose among multiple language annotations (e.g. DROID alternatives).
+        language_keys = self.modality_keys.get("language", [])
+        if len(language_keys) != 1:
+            return
+        language_key = language_keys[0]
+        if language_key not in data:
+            return
+
+        language = data[language_key]
+        if isinstance(language, np.ndarray):
+            if language.size == 0:
+                return
+            language = language.reshape(-1)[0]
+        elif isinstance(language, (list, tuple)):
+            if not language:
+                return
+            language = language[0]
+        if isinstance(language, np.generic):
+            language = language.item()
+
+        embedding = self._load_precomputed_text_embedding(str(language))
+        if embedding is not None:
+            data["task_embedding"] = embedding
+
     def _get_detailed_global_instructions(self) -> dict[int, dict]:
         """Get the detailed global instructions for the dataset.
         
@@ -1514,6 +1627,7 @@ class LeRobotSingleDataset(Dataset):
                     data[key] = self.get_data_by_modality(
                         trajectory_id, modality, key, indices[key]
                     )
+        self._maybe_add_precomputed_text_embedding(data)
         return data
 
     def get_parquet_path(self, trajectory_id: int) -> Path:

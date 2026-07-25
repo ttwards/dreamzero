@@ -658,8 +658,21 @@ class WANPolicyHead(ActionHead):
             assert videos.min() >= -1.0 and videos.max() <= 1.0, "videos must be in [-1,1] range"
             videos = videos.to(dtype=self.dtype)
         
-        # shape of B * max_length * dim
-        prompt_embs = self.encode_prompt(data["text"], data["text_attention_mask"])
+        # LeRobot v3 can provide the frozen UMT5 output directly.  Keep the
+        # regular path for WebDataset samples and for cache misses.
+        precomputed_prompt_embs = data.get("task_embedding")
+        if precomputed_prompt_embs is None:
+            prompt_embs = self.encode_prompt(data["text"], data["text_attention_mask"])
+        else:
+            if precomputed_prompt_embs.ndim != 3 or precomputed_prompt_embs.shape[-1] != self.text_encoder.dim:
+                raise ValueError(
+                    "Expected task_embedding with shape [batch, sequence, text_dim], "
+                    f"got {tuple(precomputed_prompt_embs.shape)}"
+                )
+            prompt_embs = precomputed_prompt_embs.to(
+                device=self._device,
+                dtype=torch.bfloat16,
+            )
 
         # Wan 5B: resize to target resolution so latent tokens/frame matches DiT. Use config target when set
         # (e.g. 160x320 so latent is 10x20 with VAE38 16x → even H,W, no crop in dynamics loss); else 176x320.

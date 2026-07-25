@@ -602,6 +602,7 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
                     # Skip this sample if state or action data is empty
                     if data[key] is not None and hasattr(data[key], '__len__') and len(data[key]) == 0:
                         return None
+        self._maybe_add_precomputed_text_embedding(data)
         return data
 
     def get_video(self, trajectory_id: int, key: str, step_indices: np.ndarray) -> np.ndarray:

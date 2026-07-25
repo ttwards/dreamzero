@@ -48,6 +48,8 @@ train_dataset:
     relative_action: ${relative_action}
     relative_action_keys: ${relative_action_keys}
     relative_action_per_horizon: ${relative_action_per_horizon}
+    use_precomputed_text_embeddings: true
+    text_embedding_cache_size: 128
   mixture_kwargs:
     training: true
     balance_dataset_weights: false
