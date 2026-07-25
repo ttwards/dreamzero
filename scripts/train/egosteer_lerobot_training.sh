@@ -47,6 +47,7 @@ DATASET_SHARD_SAMPLING_RATE="${DATASET_SHARD_SAMPLING_RATE:-0.1}"
 DATASET_NUM_STEPS_PER_SHARD="${DATASET_NUM_STEPS_PER_SHARD:-}"
 DATASET_NUM_SHARDS_TO_SAMPLE="${DATASET_NUM_SHARDS_TO_SAMPLE:-}"
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
+DATALOADER_PREFETCH_FACTOR="${DATALOADER_PREFETCH_FACTOR:-2}"
 TORCH_PROFILE="${TORCH_PROFILE:-false}"
 PROFILE_START_STEP="${PROFILE_START_STEP:-50}"
 PROFILE_WARMUP_STEPS="${PROFILE_WARMUP_STEPS:-1}"
@@ -100,6 +101,8 @@ export TORCH_COMPILE
 
 if [[ "$DATALOADER_NUM_WORKERS" == "0" ]]; then
     DATALOADER_PERSISTENT_WORKERS=false
+    # Transformers rejects a prefetch factor without worker subprocesses.
+    DATALOADER_PREFETCH_FACTOR=null
 else
     DATALOADER_PERSISTENT_WORKERS=true
 fi
@@ -148,7 +151,7 @@ TRAIN_COMMAND=(
     "dataloader_num_workers=$DATALOADER_NUM_WORKERS"
     dataloader_pin_memory=true
     "dataloader_persistent_workers=$DATALOADER_PERSISTENT_WORKERS"
-    dataloader_prefetch_factor=2
+    "dataloader_prefetch_factor=$DATALOADER_PREFETCH_FACTOR"
     dataloader_non_blocking=true
     "torch_compile=$TORCH_COMPILE"
     "save_strategy=$SAVE_STRATEGY"
