@@ -70,13 +70,15 @@ def describe(sample, tag):
         if shape is None and isinstance(value, (list, tuple)):
             shape = f"list[{len(value)}]"
         print(f"  {tag} {key}: {shape}")
-    video_keys = [k for k in sample if k.startswith("video.")]
-    state_keys = [k for k in sample if k.startswith("state.")]
-    action_keys = [k for k in sample if k.startswith("action.")]
-    assert video_keys, f"{tag}: no video keys"
-    assert state_keys, f"{tag}: no state keys"
-    assert action_keys, f"{tag}: no action keys"
-    assert "task_embedding" in sample, f"{tag}: missing task_embedding"
+    # Post-transform fixed four-chunk context: 33 frames across 2 views,
+    # 4 chunks x 24 action steps, 4 state steps, cached T5 embedding.
+    assert "images" in sample, f"{tag}: missing images"
+    images = np.asarray(sample["images"])
+    assert images.shape[0] == 33, f"{tag}: images {images.shape}"
+    state = np.asarray(sample["state"])
+    assert state.shape == (4, 64), f"{tag}: state {state.shape}"
+    action = np.asarray(sample["action"])
+    assert action.shape == (96, 48), f"{tag}: action {action.shape}"
     emb = np.asarray(sample["task_embedding"])
     assert emb.shape == (512, 4096), f"{tag}: task_embedding {emb.shape}"
     return sample
