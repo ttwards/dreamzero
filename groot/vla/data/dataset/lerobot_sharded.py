@@ -24,6 +24,74 @@ from .dreamzero_packing import (
 )
 
 
+def _group_trajectories_into_shards(
+    trajectory_ids: list[int] | np.ndarray,
+    step_filter: dict[int, np.ndarray],
+    num_steps_per_shard: int,
+) -> tuple[list[list[int]], np.ndarray]:
+    """Group whole trajectories into approximately equal non-empty shards."""
+    if num_steps_per_shard <= 0:
+        raise ValueError(
+            f"num_steps_per_shard must be positive, got {num_steps_per_shard}"
+        )
+
+    trajectory_ids = list(trajectory_ids)
+    if not trajectory_ids:
+        raise ValueError("No valid trajectories found for dataset")
+
+    trajectory_lengths = [len(step_filter[trajectory_id]) for trajectory_id in trajectory_ids]
+    total_steps = int(sum(trajectory_lengths))
+    if total_steps <= 0:
+        raise ValueError("No valid steps found for dataset")
+
+    target_num_shards = int(np.ceil(total_steps / num_steps_per_shard))
+    cutoffs = np.linspace(0, total_steps, target_num_shards + 1)[1:]
+    sharded_trajectories: list[list[int]] = [[]]
+    shard_lengths: list[int] = []
+    cumulative_steps = 0
+    previous_cutoff_steps = 0
+    cutoff_index = 0
+
+    for trajectory_index, (trajectory_id, trajectory_length) in enumerate(
+        zip(trajectory_ids, trajectory_lengths)
+    ):
+        sharded_trajectories[-1].append(trajectory_id)
+        cumulative_steps += trajectory_length
+
+        is_last_trajectory = trajectory_index == len(trajectory_ids) - 1
+        if (
+            not is_last_trajectory
+            and cutoff_index < target_num_shards - 1
+            and cumulative_steps >= cutoffs[cutoff_index]
+        ):
+            shard_lengths.append(cumulative_steps - previous_cutoff_steps)
+            previous_cutoff_steps = cumulative_steps
+            sharded_trajectories.append([])
+            # A single long trajectory can cross more than one target cutoff.
+            # Advance over all of them while creating only one trajectory shard.
+            while (
+                cutoff_index < target_num_shards - 1
+                and cumulative_steps >= cutoffs[cutoff_index]
+            ):
+                cutoff_index += 1
+
+    shard_lengths.append(cumulative_steps - previous_cutoff_steps)
+    if any(not shard for shard in sharded_trajectories):
+        raise AssertionError("Generated an empty trajectory shard")
+    if any(length <= 0 for length in shard_lengths):
+        raise AssertionError(f"Generated a non-positive shard length: {shard_lengths}")
+    if sum(shard_lengths) != total_steps:
+        raise AssertionError(
+            f"Shard lengths sum to {sum(shard_lengths)}, expected {total_steps}"
+        )
+    if len(sharded_trajectories) != len(shard_lengths):
+        raise AssertionError(
+            "Trajectory shard count does not match shard-length count"
+        )
+
+    return sharded_trajectories, np.asarray(shard_lengths, dtype=np.int64)
+
+
 class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
     """
     A single dataset with shards.
@@ -99,9 +167,6 @@ class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
         Returns:
             list[list[str]]: The shards of trajectories.
         """
-        sharded_trajectories = [[]]
-        curr_num_steps = 0
-        curr_shard_index = 0
         discarded_episode_indices = []
         trajectory_ids = self.trajectory_ids
         if self.discard_bad_trajectories:
@@ -112,36 +177,13 @@ class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
                 if trajectory_id not in discarded_episode_indices
             ]
 
-        assert (
-            len(trajectory_ids) > 0
-        ), f"No valid trajectories found for dataset {self.dataset_path}"
-        total_steps = np.sum(
-            [len(self.step_filter[trajectory_id]) for trajectory_id in trajectory_ids]
-        ).astype(int)
-        num_shards = np.ceil(total_steps / self.num_steps_per_shard).astype(int)
-        cutoffs = np.linspace(0, total_steps, num_shards + 1)[1:]  # Exclude the first cutoff (0)
-        shard_lengths = []
-        last_num_steps = 0
-        for trajectory_id in trajectory_ids:
-            sharded_trajectories[-1].append(trajectory_id)
-            curr_num_steps += len(self.step_filter[trajectory_id])
-            if curr_num_steps > cutoffs[curr_shard_index]:
-                sharded_trajectories.append([])
-                curr_shard_index += 1
-                shard_lengths.append(curr_num_steps - last_num_steps)
-                last_num_steps = curr_num_steps
-        shard_lengths.append(curr_num_steps - last_num_steps)
-        assert (
-            curr_num_steps == total_steps
-        ), "Total steps not equal to the sum of trajectory lengths"
-        assert (
-            len(shard_lengths) == num_shards
-        ), "Number of shards not equal to the number of cutoffs"
-        assert (
-            len(sharded_trajectories) == num_shards
-        ), "Number of shards not equal to the number of cutoffs"
+        sharded_trajectories, shard_lengths = _group_trajectories_into_shards(
+            trajectory_ids,
+            self.step_filter,
+            self.num_steps_per_shard,
+        )
         print(f"Generated {len(sharded_trajectories)} shards for dataset {self.dataset_path}")
-        return sharded_trajectories, np.array(shard_lengths)
+        return sharded_trajectories, shard_lengths
 
     def get_all_frames_to_load(self):
         """Generate a map of video frame indices to trajectory indices."""
@@ -424,9 +466,6 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
         Returns:
             list[list[str]]: The shards of trajectories.
         """
-        sharded_trajectories = [[]]
-        curr_num_steps = 0
-        curr_shard_index = 0
         discarded_episode_indices = []
         trajectory_ids = self.trajectory_ids
         if self.discard_bad_trajectories:
@@ -437,34 +476,13 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
                 if trajectory_id not in discarded_episode_indices
             ]
 
-        assert len(trajectory_ids) > 0, "No valid trajectories found for dataset"
-        total_steps = np.sum(
-            [len(self.step_filter[trajectory_id]) for trajectory_id in trajectory_ids]
-        ).astype(int)
-        num_shards = np.ceil(total_steps / self.num_steps_per_shard).astype(int)
-        cutoffs = np.linspace(0, total_steps, num_shards + 1)[1:]  # Exclude the first cutoff (0)
-        shard_lengths = []
-        last_num_steps = 0
-        for trajectory_id in trajectory_ids:
-            sharded_trajectories[-1].append(trajectory_id)
-            curr_num_steps += len(self.step_filter[trajectory_id])
-            if curr_num_steps > cutoffs[curr_shard_index]:
-                sharded_trajectories.append([])
-                curr_shard_index += 1
-                shard_lengths.append(curr_num_steps - last_num_steps)
-                last_num_steps = curr_num_steps
-        shard_lengths.append(curr_num_steps - last_num_steps)
-        assert (
-            curr_num_steps == total_steps
-        ), "Total steps not equal to the sum of trajectory lengths"
-        assert (
-            len(shard_lengths) == num_shards
-        ), "Number of shards not equal to the number of cutoffs"
-        assert (
-            len(sharded_trajectories) == num_shards
-        ), "Number of shards not equal to the number of cutoffs"
+        sharded_trajectories, shard_lengths = _group_trajectories_into_shards(
+            trajectory_ids,
+            self.step_filter,
+            self.num_steps_per_shard,
+        )
         print(f"Generated {len(sharded_trajectories)} shards for dataset {self.dataset_path}")
-        return sharded_trajectories, np.array(shard_lengths)
+        return sharded_trajectories, shard_lengths
 
     @staticmethod
     def get_shard(
