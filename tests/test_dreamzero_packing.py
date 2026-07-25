@@ -8,6 +8,7 @@ from groot.vla.data.dataset.dreamzero_packing import (
     infer_chunk_count,
     pack_transformed_samples,
 )
+from groot.vla.data.schema import EmbodimentTag
 from groot.vla.model.dreamzero.transform.dreamzero_cotrain import (
     collate_packed,
 )
@@ -17,6 +18,10 @@ from groot.vla.model.dreamzero.modules.wan_video_dit_action_casual_chunk import 
 
 
 ACTION_HORIZON = 24
+EMBODIMENT_MAPPING = {
+    tag.value: index
+    for index, tag in enumerate(EmbodimentTag)
+}
 
 
 def _sample(num_chunks: int, marker: int = 0) -> dict:
@@ -39,7 +44,10 @@ def _sample(num_chunks: int, marker: int = 0) -> dict:
         "is_cotrain_instance": np.zeros((), dtype=bool),
         "segmentation_target": np.zeros((2,), dtype=np.float32),
         "segmentation_target_mask": np.zeros((1,), dtype=np.float32),
-        "embodiment_id": np.zeros((), dtype=np.int64),
+        "embodiment_id": np.array(
+            EMBODIMENT_MAPPING[EmbodimentTag.DUAL_ARM_DEXTEROUS_HAND.value],
+            dtype=np.int64,
+        ),
         "text": f"task {marker}",
         "text_negative": "negative",
     }
@@ -107,7 +115,7 @@ def test_collate_packed_has_fixed_two_slot_shapes_and_masks_padding():
         pack,
         _Tokenizer(),
         num_views=1,
-        embodiment_tag_mapping={},
+        embodiment_tag_mapping=EMBODIMENT_MAPPING,
         action_horizon=ACTION_HORIZON,
         video_frames_per_chunk=8,
     )
@@ -135,7 +143,7 @@ def test_single_four_chunk_pack_keeps_dummy_slot_zero():
         pack,
         _Tokenizer(),
         num_views=1,
-        embodiment_tag_mapping={},
+        embodiment_tag_mapping=EMBODIMENT_MAPPING,
         action_horizon=ACTION_HORIZON,
         video_frames_per_chunk=8,
     )
