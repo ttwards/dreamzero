@@ -2033,6 +2033,18 @@ class BaseExperiment(ABC):
             training_args.torch_compile = False
             training_args.torch_compile_backend = None
             training_args.torch_compile_mode = None
+            # TrainingArguments.__post_init__ already exported the compile
+            # backend/mode as ACCELERATE_DYNAMO_* env vars.  Accelerate reads
+            # them when building the DeepSpeed engine and would compile the
+            # whole VLA with fullgraph=False, defeating the targeted scope, so
+            # clear the leaked variables along with the dataclass fields.
+            for leaked in (
+                "ACCELERATE_DYNAMO_BACKEND",
+                "ACCELERATE_DYNAMO_MODE",
+                "ACCELERATE_DYNAMO_USE_FULLGRAPH",
+                "ACCELERATE_DYNAMO_USE_DYNAMIC",
+            ):
+                os.environ.pop(leaked, None)
             print(
                 f"Using targeted compile scope={compile_scope}; disabling whole-model Accelerate compile",
                 flush=True,
