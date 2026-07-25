@@ -27,6 +27,24 @@ def infer_chunk_count(sample: dict[str, Any], action_horizon: int) -> int:
     return chunk_count
 
 
+def filter_fixed_chunk_samples(
+    samples: Iterable[dict[str, Any]],
+    *,
+    required_chunk_count: int,
+    action_horizon: int = 24,
+) -> Iterator[dict[str, Any]]:
+    """Yield only samples that exactly fill the requested chunk budget."""
+    if required_chunk_count <= 0:
+        raise ValueError(
+            "required_chunk_count must be positive, got "
+            f"{required_chunk_count}"
+        )
+
+    for sample in samples:
+        if infer_chunk_count(sample, action_horizon) == required_chunk_count:
+            yield sample
+
+
 def make_packed_feature(
     samples: list[dict[str, Any]],
     *,

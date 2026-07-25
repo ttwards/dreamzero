@@ -17,7 +17,10 @@ from .lerobot import (
     LeRobotSingleDataset,
     select_trajectory_rows,
 )
-from .dreamzero_packing import pack_transformed_samples
+from .dreamzero_packing import (
+    filter_fixed_chunk_samples,
+    pack_transformed_samples,
+)
 
 
 class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
@@ -1320,6 +1323,8 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         shard_sampling_rate: float = 0.5,
         num_shards_to_sample: int = 2**20,
         allow_padding_at_end: bool = False,
+        fixed_chunk_count: int | None = None,
+        fixed_chunk_action_horizon: int = 24,
         pack_chunk_capacity: int | None = None,
         pack_max_segments: int = 2,
         pack_action_horizon: int = 24,
@@ -1350,10 +1355,28 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         # Set properties
         self.shard_sampling_rate = shard_sampling_rate
         self.num_shards_to_sample = num_shards_to_sample
+        self.fixed_chunk_count = fixed_chunk_count
+        self.fixed_chunk_action_horizon = fixed_chunk_action_horizon
         self.pack_chunk_capacity = pack_chunk_capacity
         self.pack_max_segments = pack_max_segments
         self.pack_action_horizon = pack_action_horizon
         self.pack_pending_limit = pack_pending_limit
+        if self.fixed_chunk_count is not None:
+            if self.fixed_chunk_count <= 0:
+                raise ValueError(
+                    "fixed_chunk_count must be positive, got "
+                    f"{self.fixed_chunk_count}"
+                )
+            if self.fixed_chunk_action_horizon <= 0:
+                raise ValueError(
+                    "fixed_chunk_action_horizon must be positive, got "
+                    f"{self.fixed_chunk_action_horizon}"
+                )
+            if self.pack_chunk_capacity is not None:
+                raise ValueError(
+                    "fixed_chunk_count and pack_chunk_capacity are mutually "
+                    "exclusive"
+                )
         if self.pack_chunk_capacity is not None:
             if self.pack_chunk_capacity <= 0:
                 raise ValueError(
@@ -1509,6 +1532,13 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
 
     def __iter__(self):
         samples = self._iter_transformed_samples()
+        if self.fixed_chunk_count is not None:
+            yield from filter_fixed_chunk_samples(
+                samples,
+                required_chunk_count=self.fixed_chunk_count,
+                action_horizon=self.fixed_chunk_action_horizon,
+            )
+            return
         if self.pack_chunk_capacity is None:
             yield from samples
             return

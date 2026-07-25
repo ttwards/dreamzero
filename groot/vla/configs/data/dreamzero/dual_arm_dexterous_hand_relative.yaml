@@ -55,10 +55,7 @@ train_dataset:
     balance_dataset_weights: false
     seed: 42
     shard_sampling_rate: ${dataset_shard_sampling_rate}
-    # One physical microbatch is a fixed four-chunk pack containing at most
-    # two independent contexts. Full 4, 3+1, and 2+2 packs are preferred;
-    # bounded fallback packs are padded rather than dropping samples.
-    pack_chunk_capacity: ${max_chunk_size}
-    pack_max_segments: 2
-    pack_action_horizon: ${action_horizon}
-    pack_pending_limit: 8
+    # Keep one full four-chunk context per physical microbatch. Incomplete
+    # language/boundary windows are skipped instead of padded or combined.
+    fixed_chunk_count: ${max_chunk_size}
+    fixed_chunk_action_horizon: ${action_horizon}

@@ -1160,15 +1160,26 @@ class WANPolicyHead(ActionHead):
 
             dynamics_losses: list[torch.Tensor] = []
             action_losses: list[torch.Tensor] = []
+            dynamics_numerators: list[torch.Tensor] = []
+            dynamics_denominators: list[torch.Tensor] = []
+            action_numerators: list[torch.Tensor] = []
+            action_denominators: list[torch.Tensor] = []
             for sample_index, ((frame_start, frame_end), (
                 action_start,
                 action_end,
             )) in enumerate(zip(latent_frame_ranges, action_ranges)):
+                weighted_frame_error = (
+                    frame_error[:, frame_start:frame_end]
+                    * frame_weight[:, frame_start:frame_end]
+                )
+                dynamics_numerator = weighted_frame_error.sum()
+                dynamics_denominator = weighted_frame_error.new_tensor(
+                    weighted_frame_error.numel()
+                )
+                dynamics_numerators.append(dynamics_numerator)
+                dynamics_denominators.append(dynamics_denominator)
                 dynamics_losses.append(
-                    (
-                        frame_error[:, frame_start:frame_end]
-                        * frame_weight[:, frame_start:frame_end]
-                    ).mean()
+                    dynamics_numerator / dynamics_denominator
                 )
 
                 sample_mask = action_mask[
@@ -1179,21 +1190,34 @@ class WANPolicyHead(ActionHead):
                     * action_weight[:, action_start:action_end, None]
                     * sample_mask
                 )
-                denominator = sample_mask.sum().clamp_min(1.0)
-                sample_action_loss = (
-                    weighted_action_error.sum() / denominator
-                )
+                action_numerator = weighted_action_error.sum()
+                action_denominator = sample_mask.sum()
                 if not has_real_action[sample_index]:
-                    sample_action_loss = sample_action_loss * 0.0
+                    action_numerator = action_numerator * 0.0
+                    action_denominator = action_denominator * 0.0
+                action_numerators.append(action_numerator)
+                action_denominators.append(action_denominator)
+                sample_action_loss = action_numerator / (
+                    action_denominator.clamp_min(1.0)
+                )
                 action_losses.append(sample_action_loss)
 
             dynamics_sum = torch.stack(dynamics_losses).sum()
             action_sum = torch.stack(action_losses).sum()
-            # Fixed normalization preserves equal per-sample influence across
-            # one- and two-context packs. Dividing by the real B would make a
-            # 4+0 sample twice as influential as each sample in 3+1 or 2+2.
-            weighted_dynamics_loss = dynamics_sum / max_segments
-            weighted_action_loss = action_sum / max_segments
+            # Reduce once over valid packed elements. This preserves the
+            # original one-context loss scale for 4+0 while keeping 3+1 and
+            # 2+2 packs at the same total scale instead of summing two means.
+            weighted_dynamics_loss = (
+                torch.stack(dynamics_numerators).sum()
+                / torch.stack(dynamics_denominators).sum()
+            )
+            total_action_denominator = torch.stack(
+                action_denominators
+            ).sum()
+            weighted_action_loss = (
+                torch.stack(action_numerators).sum()
+                / total_action_denominator.clamp_min(1.0)
+            )
             loss = weighted_dynamics_loss + weighted_action_loss
 
         return BatchFeature(

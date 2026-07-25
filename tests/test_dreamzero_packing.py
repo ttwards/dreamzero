@@ -5,6 +5,7 @@ import torch
 
 from groot.vla.data.dataset.dreamzero_packing import (
     PACKED_FEATURES_KEY,
+    filter_fixed_chunk_samples,
     infer_chunk_count,
     pack_transformed_samples,
 )
@@ -66,6 +67,28 @@ def _composition(pack: dict) -> tuple[int, ...]:
         infer_chunk_count(sample, ACTION_HORIZON)
         for sample in pack[PACKED_FEATURES_KEY]
     )
+
+
+def test_fixed_chunk_filter_keeps_only_full_budget_samples():
+    source = [
+        _sample(1, 1),
+        _sample(4, 2),
+        _sample(3, 3),
+        _sample(4, 4),
+    ]
+
+    selected = list(
+        filter_fixed_chunk_samples(
+            source,
+            required_chunk_count=4,
+            action_horizon=ACTION_HORIZON,
+        )
+    )
+
+    assert [
+        int(sample["images"][0, 0, 0, 0])
+        for sample in selected
+    ] == [2, 4]
 
 
 def test_packer_prefers_full_compositions_and_drops_nothing():

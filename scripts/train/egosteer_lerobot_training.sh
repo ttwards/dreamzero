@@ -2,9 +2,9 @@
 # Standalone single-node launcher for the EgoSteer LeRobot v3 48D export.
 #
 # Defaults target Wan2.1-I2V-14B full fine-tuning.  The production dataset
-# provides text_embs/<sha1(raw task text)[:16]>.pt. Packed distributed
-# training requires every logical sample to hit that cache so all ZeRO ranks
-# execute the same trainable module graph.
+# provides text_embs/<sha1(raw task text)[:16]>.pt. The data loader keeps only
+# complete four-chunk contexts and the action head consumes the cached T5
+# embedding directly.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +38,10 @@ WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
 DEEPSPEED_CONFIG="${DEEPSPEED_CONFIG:-}"
 if [[ -z "$DEEPSPEED_CONFIG" ]]; then
     if [[ "$NUM_GPUS" == "8" ]]; then
-        DEEPSPEED_CONFIG="groot/vla/configs/deepspeed/zero3_hpz8_offload.json"
+        # This is the measured ~30% MFU path: GPU AdamW plus tuned HPZ
+        # communication. Use zero3_hpz8_offload.json explicitly as the
+        # lower-memory fallback.
+        DEEPSPEED_CONFIG="groot/vla/configs/deepspeed/zero3_hpz8.json"
     else
         DEEPSPEED_CONFIG="groot/vla/configs/deepspeed/zero2_offload.json"
     fi
@@ -141,10 +144,10 @@ TRAIN_COMMAND=(
     image_resolution_width=320
     image_resolution_height=176
     frame_seqlen=880
-    # Fixed physical packed sequence:
-    # 2 * (4 chunks * 2 latent frames + 2 segment first frames) * 880
-    # + 4 * (24 action + 1 state) = 17,700 transformer tokens.
-    performance_tokens_per_sample=17700
+    # Fixed physical single-context sequence:
+    # 2 * (4 chunks * 2 latent frames + 1 first frame) * 880
+    # + 4 * (24 action + 1 state) = 15,940 transformer tokens.
+    performance_tokens_per_sample=15940
     teacher_forcing_attn_backend=fragmented
     "dual_arm_dexterous_hand_data_root=$DATA_ROOT"
     "dataset_shard_sampling_rate=$DATASET_SHARD_SAMPLING_RATE"
