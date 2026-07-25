@@ -1323,8 +1323,12 @@ class BaseTrainer(transformers.Trainer):
                     collator=self.data_collator,
                     device=torch.device(f"cuda:{self.local_rank}"),
                 )
-            inputs = self._nvimgcodec_processor(inputs[NVIMGCODEC_RAW_KEY])
-        prepared = super()._prepare_inputs(inputs)
+            with torch.profiler.record_function(
+                "dreamzero/nvimgcodec_decode_transform_collate"
+            ):
+                inputs = self._nvimgcodec_processor(inputs[NVIMGCODEC_RAW_KEY])
+        with torch.profiler.record_function("dreamzero/host_to_device"):
+            prepared = super()._prepare_inputs(inputs)
         self._update_performance_tokens_from_inputs(prepared)
         if cuda_prepare_start is not None:
             cuda_prepare_end = self._new_cuda_event()
@@ -1359,7 +1363,11 @@ class BaseTrainer(transformers.Trainer):
             cuda_training_start = self._new_cuda_event()
             cuda_training_start.record()
 
-        with self.timer.with_label("training_step"), profile_context as prof:
+        with (
+            self.timer.with_label("training_step"),
+            profile_context as prof,
+            torch.profiler.record_function("dreamzero/forward_backward"),
+        ):
             output = super().training_step(model, inputs)
 
         if cuda_training_start is not None:
@@ -1391,7 +1399,10 @@ class BaseTrainer(transformers.Trainer):
         if self._performance_capture_cuda:
             cuda_forward_start = self._new_cuda_event()
             cuda_forward_start.record()
-        with self.timer.with_label("model_forward"):
+        with (
+            self.timer.with_label("model_forward"),
+            torch.profiler.record_function("dreamzero/model_forward_total"),
+        ):
             outputs = model(inputs)
         if cuda_forward_start is not None:
             cuda_forward_end = self._new_cuda_event()

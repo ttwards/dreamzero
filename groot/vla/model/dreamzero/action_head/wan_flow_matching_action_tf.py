@@ -563,12 +563,13 @@ class WANPolicyHead(ActionHead):
         return image
 
     def encode_prompt(self, input_ids, attention_mask):
-        seq_lens = attention_mask.gt(0).sum(dim=1).long()
-        prompt_emb = self.text_encoder(input_ids, attention_mask)
-        prompt_emb = prompt_emb.clone().to(dtype=torch.bfloat16)
-        for i, v in enumerate(seq_lens):
-            prompt_emb[:, v:] = 0
-        return prompt_emb
+        with torch.profiler.record_function("dreamzero/t5_encode"):
+            seq_lens = attention_mask.gt(0).sum(dim=1).long()
+            prompt_emb = self.text_encoder(input_ids, attention_mask)
+            prompt_emb = prompt_emb.clone().to(dtype=torch.bfloat16)
+            for i, v in enumerate(seq_lens):
+                prompt_emb[:, v:] = 0
+            return prompt_emb
 
     def _ensure_vae_on_device(self, ref_tensor):
         """Lazily move the VAE to the correct device/dtype on first use."""
@@ -578,20 +579,23 @@ class WANPolicyHead(ActionHead):
             self._vae_device_ready = True
 
     def encode_video(self, input_video, tiled=True, tile_size=(34, 34), tile_stride=(18, 16)):
-        self._ensure_vae_on_device(input_video)
-        with torch.no_grad():
-            latents = self.vae.encode(input_video, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride)
-        return latents
+        with torch.profiler.record_function("dreamzero/vae_video_encode"):
+            self._ensure_vae_on_device(input_video)
+            with torch.no_grad():
+                latents = self.vae.encode(input_video, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride)
+            return latents
 
     def encode_image(self, image, num_frames, height, width):
         with torch.amp.autocast(dtype=torch.bfloat16, device_type=torch.device(self._device).type):
             batch_size = image.shape[0]
-            clip_context = self.image_encoder.encode_image(image)
+            with torch.profiler.record_function("dreamzero/clip_image_encode"):
+                clip_context = self.image_encoder.encode_image(image)
             image_input = image.transpose(1, 2)
             image_zeros = torch.zeros(batch_size, 3, num_frames-1, height, width, dtype=torch.bfloat16, device=self._device)
-            self._ensure_vae_on_device(image_input)
-            with torch.no_grad():
-                y = self.vae.encode(torch.concat([image_input, image_zeros], dim=2))
+            with torch.profiler.record_function("dreamzero/vae_condition_encode"):
+                self._ensure_vae_on_device(image_input)
+                with torch.no_grad():
+                    y = self.vae.encode(torch.concat([image_input, image_zeros], dim=2))
             # Build mask to match VAE output shape (VAE may use different spatial downsampling, e.g. WanVideoVAE38 uses patch_size=2 -> height/16)
             # y shape is B * 16 * (1+(T-1)/4) * H_latent * W_latent
             num_t = y.shape[2]
@@ -780,20 +784,21 @@ class WANPolicyHead(ActionHead):
 
         # Compute loss
         with torch.amp.autocast(dtype=torch.bfloat16, device_type=torch.device(self._device).type):
-            if actions.numel() > 0:
-                video_noise_pred, action_noise_pred = self.model(
-                    noisy_latents.transpose(1, 2), timestep=timestep, clip_feature=clip_feas, y=ys, context=prompt_embs, seq_len=seq_len,
-                    state=state_features, embodiment_id=embodiment_id,
-                    action=noisy_actions, timestep_action=timestep_action, 
-                    clean_x=latents.transpose(1, 2),
-                )
-            else:
-                video_noise_pred, action_noise_pred = self.model(
-                    noisy_latents.transpose(1, 2), timestep=timestep, timestep_action=timestep_action, 
-                    clip_feature=clip_feas, y=ys, context=prompt_embs, seq_len=seq_len,
-                    state=state_features, embodiment_id=embodiment_id,
-                    clean_x=latents.transpose(1, 2),
-                )
+            with torch.profiler.record_function("dreamzero/wan_forward"):
+                if actions.numel() > 0:
+                    video_noise_pred, action_noise_pred = self.model(
+                        noisy_latents.transpose(1, 2), timestep=timestep, clip_feature=clip_feas, y=ys, context=prompt_embs, seq_len=seq_len,
+                        state=state_features, embodiment_id=embodiment_id,
+                        action=noisy_actions, timestep_action=timestep_action,
+                        clean_x=latents.transpose(1, 2),
+                    )
+                else:
+                    video_noise_pred, action_noise_pred = self.model(
+                        noisy_latents.transpose(1, 2), timestep=timestep, timestep_action=timestep_action,
+                        clip_feature=clip_feas, y=ys, context=prompt_embs, seq_len=seq_len,
+                        state=state_features, embodiment_id=embodiment_id,
+                        clean_x=latents.transpose(1, 2),
+                    )
 
             # Per-sample dynamics loss
             # DiT patch_embedding uses stride (1,2,2), so output spatial size can be smaller than
