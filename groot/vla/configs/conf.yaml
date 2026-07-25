@@ -111,6 +111,9 @@ save_llm: false
 save_lora_only: false
 save_value_model: false
 save_q_model: false
+# Benchmark/smoke-test escape hatch. Production training keeps the default and
+# writes the final model after Trainer finishes.
+skip_final_save: false
 
 download_cache: false
 

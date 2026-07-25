@@ -72,6 +72,7 @@ export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
 # through 40 checkpointed blocks. Frozen T5/CLIP remain separate targets. VAE
 # is stateful and can be tested separately with TORCH_COMPILE_SCOPE=vae.
 export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks_frozen}"
+export TORCH_COMPILE_DIAGNOSTICS="${TORCH_COMPILE_DIAGNOSTICS:-false}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 # This setting is per rank. Eight local ranks times 12 workers gives a
 # 96-worker whole-node compilation budget without spawning the default

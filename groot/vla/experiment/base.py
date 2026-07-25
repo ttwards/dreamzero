@@ -457,6 +457,44 @@ class TargetedCompileCallback(TrainerCallback):
         except ImportError:
             pass
 
+    @staticmethod
+    def _counter_total(counter) -> int:
+        return sum(
+            int(value)
+            for value in counter.values()
+            if isinstance(value, (int, float))
+        )
+
+    def on_step_end(self, args, state, control, **kwargs):
+        """Optionally expose cumulative compiler activity during smoke tests."""
+        if (
+            os.environ.get("TORCH_COMPILE_DIAGNOSTICS", "false").lower()
+            not in {"1", "true", "yes", "on"}
+            or int(os.environ.get("RANK", "0")) != 0
+        ):
+            return
+
+        counters = getattr(getattr(torch, "_dynamo", None), "utils", None)
+        counters = getattr(counters, "counters", {})
+        frames = dict(counters.get("frames", {}))
+        stats = dict(counters.get("stats", {}))
+        aot = dict(counters.get("aot_autograd", {}))
+        inductor = dict(counters.get("inductor", {}))
+        summary = {
+            "step": state.global_step,
+            "frames_total": frames.get("total", 0),
+            "frames_ok": frames.get("ok", 0),
+            "unique_graphs": stats.get("unique_graphs", 0),
+            "calls_captured": stats.get("calls_captured", 0),
+            "graph_breaks": self._counter_total(counters.get("graph_break", {})),
+            "recompiles": self._counter_total(counters.get("recompiles", {})),
+            "aot_total": aot.get("total", 0),
+            "aot_ok": aot.get("ok", 0),
+            "inductor_fxgraph_cache_hit": inductor.get("fxgraph_cache_hit", 0),
+            "inductor_fxgraph_cache_miss": inductor.get("fxgraph_cache_miss", 0),
+        }
+        print(f"Torch compile diagnostics: {json.dumps(summary)}", flush=True)
+
     def on_train_begin(self, args, state, control, model=None, **kwargs):
         if self.completed:
             return
@@ -2108,6 +2146,9 @@ class BaseExperiment(ABC):
         # Start training.
         self.trainer.train(resume_from_checkpoint=self.resume_from_checkpoint)
         self.trainer.save_state()
-        safe_save_model_for_hf_trainer(
-            trainer=self.trainer, output_dir=self.training_args.output_dir
-        )
+        if self.cfg.get("skip_final_save", False):
+            mprint("Skipping final model save (skip_final_save=true)", flush=True)
+        else:
+            safe_save_model_for_hf_trainer(
+                trainer=self.trainer, output_dir=self.training_args.output_dir
+            )

@@ -86,6 +86,7 @@ TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-auto}"
 TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
 TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks_frozen}"
+TORCH_COMPILE_DIAGNOSTICS="${TORCH_COMPILE_DIAGNOSTICS:-false}"
 TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 TORCHINDUCTOR_COMPILE_THREADS="${TORCHINDUCTOR_COMPILE_THREADS:-}"
 TORCHINDUCTOR_FALLBACK_RANDOM="${TORCHINDUCTOR_FALLBACK_RANDOM:-true}"
@@ -235,6 +236,7 @@ TRAIN_COMMAND=(
     "tokenizer_path=$TOKENIZER_DIR"
     "global_batch_size=$GLOBAL_BATCH_SIZE"
     "max_steps=$MAX_STEPS"
+    "skip_final_save=${SKIP_FINAL_SAVE:-false}"
     per_device_train_batch_size=1
     learning_rate=1e-5
     weight_decay=1e-5
@@ -309,12 +311,14 @@ echo "deepspeed config=$DEEPSPEED_CONFIG"
 echo "teacher-forcing attention=$TEACHER_FORCING_ATTN_BACKEND"
 echo "torch compile requested=$TORCH_COMPILE scope=$TORCH_COMPILE_SCOPE whole_model=$TRAINER_TORCH_COMPILE backend=$TORCH_COMPILE_BACKEND mode=$TORCH_COMPILE_MODE dynamic=$TORCH_COMPILE_DYNAMIC fullgraph=$TORCH_COMPILE_FULLGRAPH"
 if [ "$TORCH_COMPILE" = "true" ]; then
+    export TORCH_COMPILE_DIAGNOSTICS
     echo "torch inductor cache=$TORCHINDUCTOR_CACHE_DIR"
     if [ -n "$TORCHINDUCTOR_COMPILE_THREADS" ]; then
         echo "torch inductor compile workers=${TORCHINDUCTOR_COMPILE_THREADS}/rank ($((TORCHINDUCTOR_COMPILE_THREADS * GPUS_PER_NODE))/node)"
     fi
     echo "torch inductor random fallback=$TORCHINDUCTOR_FALLBACK_RANDOM"
     echo "torch inductor pointwise autotune=$TORCHINDUCTOR_AUTOTUNE_POINTWISE"
+    echo "torch compile diagnostics=$TORCH_COMPILE_DIAGNOSTICS"
 fi
 echo "torch profiler=$TORCH_PROFILE"
 if [ "$TORCH_PROFILE" = "true" ]; then
