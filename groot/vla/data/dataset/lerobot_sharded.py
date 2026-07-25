@@ -1561,6 +1561,8 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
 
         self._shards_sample_schedule = self.filter_shards_sample_schedule()
         self.curr_shard_index = -1
+        if not self.shards_sample_schedule:
+            return
         self.cache_next_shard()
         rng = np.random.default_rng(self.seed)
         for i, (dataset_index, shard_index) in enumerate(self.shards_sample_schedule):
@@ -1576,7 +1578,8 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
                 f"Rank {self.rank}, Worker {self.worker_id}: Wait for shard {shard_index} in dataset {dataset_index} in {wait_end - wait_start:.2f} seconds"
             )
             # Start caching the next shard immediately
-            self.cache_next_shard()
+            if self.curr_shard_index + 1 < len(self.shards_sample_schedule):
+                self.cache_next_shard()
             all_steps: list[tuple[int, int]] = []
             for trajectory_id in dataset.get_trajectories_in_shard():
                 trajectory_index = dataset.get_trajectory_index(trajectory_id)
@@ -1613,7 +1616,10 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
 
     def cache_next_shard(self):
         """Cache the next shard in a background thread."""
-        next_dataset_idx, next_shard_idx = self.shards_sample_schedule[self.curr_shard_index + 1]
+        next_index = self.curr_shard_index + 1
+        if next_index >= len(self.shards_sample_schedule):
+            return
+        next_dataset_idx, next_shard_idx = self.shards_sample_schedule[next_index]
         self.datasets[next_dataset_idx].start_cache_shard(next_shard_idx)
 
     def __getitem__(self, index: int) -> dict:
