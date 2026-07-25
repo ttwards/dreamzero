@@ -1724,6 +1724,19 @@ class BaseTrainer(transformers.Trainer):
 
             return ret
 
+    def _save_checkpoint(self, model, trial=None):
+        # DefaultFlowCallback forces should_save=True at max_steps for
+        # save_strategy=steps, so skip_final_save must also veto this in-loop
+        # final checkpoint, not just the explicit save after trainer.train().
+        if (
+            getattr(self, "base_cfg", None) is not None
+            and self.base_cfg.get("skip_final_save", False)
+            and self.state.global_step >= self.state.max_steps
+        ):
+            mprint("Skipping final checkpoint save (skip_final_save=true)", flush=True)
+            return
+        return super()._save_checkpoint(model, trial)
+
     def train(
         self,
         resume_from_checkpoint=None,
