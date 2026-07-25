@@ -3,6 +3,7 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 
 import math
+import os
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -13,6 +14,18 @@ from diffusers.schedulers.scheduling_utils import (
     SchedulerMixin,
     SchedulerOutput,
 )
+
+
+# Keep scheduler compilation consistent with the training launcher's global
+# switch.  These methods are used by inference, but they are still imported
+# during training; an unconditional decorator otherwise starts an Inductor
+# worker pool before the first training batch even when TORCH_COMPILE=false.
+DISABLE_TORCH_COMPILE = os.getenv("TORCH_COMPILE", "true").lower() in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 
 
 class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
@@ -293,7 +306,10 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
 
             return epsilon
 
-    @torch.compile(mode="reduce-overhead", fullgraph=True, dynamic=False)
+    @torch.compile(
+        mode="reduce-overhead", fullgraph=True, dynamic=False,
+        disable=DISABLE_TORCH_COMPILE,
+    )
     def multistep_uni_p_bh_update(
         self,
         model_output: torch.Tensor,
@@ -405,7 +421,10 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
         x_t = x_t.to(x.dtype)
         return x_t
 
-    @torch.compile(mode="reduce-overhead", fullgraph=True, dynamic=False)
+    @torch.compile(
+        mode="reduce-overhead", fullgraph=True, dynamic=False,
+        disable=DISABLE_TORCH_COMPILE,
+    )
     def multistep_uni_c_bh_update(
         self,
         this_model_output: torch.Tensor,
