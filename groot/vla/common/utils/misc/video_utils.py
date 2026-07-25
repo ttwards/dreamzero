@@ -1,5 +1,6 @@
 import json
 import subprocess
+import warnings
 
 import cv2
 import numpy as np
@@ -26,6 +27,110 @@ try:
     TORCHCODEC_AVAILABLE = True
 except (ImportError, RuntimeError):
     TORCHCODEC_AVAILABLE = False
+
+
+def _extract_frames_at_timestamps_pyav(
+    video_path: str,
+    timestamps: list[float] | np.ndarray,
+    video_backend_kwargs: dict | None = None,
+) -> np.ndarray:
+    """Decode the frames nearest to ``timestamps`` with PyAV."""
+    if not PYAV_AVAILABLE:
+        raise ImportError("PyAV is not available. Install it with: pip install av")
+
+    backend_kwargs = dict(video_backend_kwargs or {})
+    thread_type = backend_kwargs.pop("thread_type", "AUTO")
+    thread_count = int(backend_kwargs.pop("thread_count", 0))
+    if backend_kwargs:
+        raise ValueError(
+            "Unsupported PyAV video backend kwargs: "
+            f"{sorted(backend_kwargs.keys())}"
+        )
+
+    requested_timestamps = np.asarray(timestamps, dtype=np.float64)
+    if requested_timestamps.ndim != 1:
+        raise ValueError(
+            "Video timestamps must be one-dimensional, got "
+            f"shape={requested_timestamps.shape}"
+        )
+    if requested_timestamps.size == 0:
+        raise ValueError("At least one video timestamp is required")
+
+    order = np.argsort(requested_timestamps, kind="stable")
+    sorted_timestamps = requested_timestamps[order]
+    sorted_frames: list[np.ndarray | None] = [None] * len(sorted_timestamps)
+
+    with av.open(video_path) as container:
+        stream = container.streams.video[0]
+        stream.thread_type = thread_type
+        stream.thread_count = thread_count
+        if stream.time_base is None:
+            raise ValueError(f"Video stream has no time base: {video_path}")
+
+        time_base = float(stream.time_base)
+        start_pts = int(stream.start_time or 0)
+        first_target_pts = start_pts + int(sorted_timestamps[0] / time_base)
+        container.seek(
+            max(start_pts, first_target_pts),
+            stream=stream,
+            any_frame=False,
+            backward=True,
+        )
+
+        target_index = 0
+        previous_frame = None
+        previous_timestamp = None
+        converted_pts = None
+        converted_frame = None
+
+        for frame in container.decode(stream):
+            if frame.pts is None:
+                continue
+            frame_timestamp = float((frame.pts - start_pts) * stream.time_base)
+
+            while (
+                target_index < len(sorted_timestamps)
+                and sorted_timestamps[target_index] <= frame_timestamp
+            ):
+                target_timestamp = sorted_timestamps[target_index]
+                selected_frame = frame
+                if previous_frame is not None and previous_timestamp is not None:
+                    if abs(previous_timestamp - target_timestamp) <= abs(
+                        frame_timestamp - target_timestamp
+                    ):
+                        selected_frame = previous_frame
+
+                selected_pts = selected_frame.pts
+                if converted_pts != selected_pts:
+                    converted_frame = selected_frame.to_ndarray(format="rgb24")
+                    converted_pts = selected_pts
+                assert converted_frame is not None
+                sorted_frames[target_index] = converted_frame
+                target_index += 1
+
+            if target_index == len(sorted_timestamps):
+                break
+            previous_frame = frame
+            previous_timestamp = frame_timestamp
+
+        if target_index < len(sorted_timestamps):
+            if previous_frame is None:
+                raise ValueError(
+                    f"PyAV decoded no frames from {video_path} at "
+                    f"timestamps {sorted_timestamps[:4]}"
+                )
+            final_frame = previous_frame.to_ndarray(format="rgb24")
+            while target_index < len(sorted_timestamps):
+                sorted_frames[target_index] = final_frame
+                target_index += 1
+
+    if any(frame is None for frame in sorted_frames):
+        raise RuntimeError(f"PyAV failed to resolve all timestamps from {video_path}")
+
+    frames_in_original_order: list[np.ndarray | None] = [None] * len(sorted_frames)
+    for sorted_index, original_index in enumerate(order):
+        frames_in_original_order[int(original_index)] = sorted_frames[sorted_index]
+    return np.stack(frames_in_original_order)
 
 
 def _get_video_info_ffmpeg(video_path: str) -> dict:
@@ -323,8 +428,25 @@ def get_frames_by_timestamps(
         # Map each requested timestamp to the closest frame index
         # Only take the first element of the frame_ts array which corresponds to start_seconds
         indices = np.abs(frame_ts[:, :1] - timestamps).argmin(axis=0)
-        frames = vr.get_batch(indices)
-        return frames.asnumpy()
+        try:
+            frames = vr.get_batch(indices)
+            return frames.asnumpy()
+        except decord.DECORDError as exc:
+            if not PYAV_AVAILABLE:
+                raise
+            warnings.warn(
+                f"decord failed to decode {video_path}; retrying the same "
+                f"{len(indices)} timestamps with PyAV. Original error: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return _extract_frames_at_timestamps_pyav(video_path, timestamps)
+    elif video_backend == "pyav":
+        return _extract_frames_at_timestamps_pyav(
+            video_path,
+            timestamps,
+            video_backend_kwargs=video_backend_kwargs,
+        )
     elif video_backend == "torchcodec":
         if not TORCHCODEC_AVAILABLE:
             raise ImportError("torchcodec is not available.")

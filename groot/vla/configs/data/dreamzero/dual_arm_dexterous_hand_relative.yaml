@@ -42,7 +42,12 @@ train_dataset:
   metadata_versions: ${metadata_versions}
   fps: ${fps}
   dataset_kwargs:
-    video_backend: decord
+    # PyAV stays CPU-only inside forked dataloader workers and is faster than
+    # decord for the long contiguous episode windows used by this dataset.
+    video_backend: pyav
+    video_backend_kwargs:
+      thread_type: AUTO
+      thread_count: 0
     use_global_metadata: ${use_global_metadata}
     max_chunk_size: ${max_chunk_size}
     relative_action: ${relative_action}
