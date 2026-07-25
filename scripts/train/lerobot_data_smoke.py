@@ -22,6 +22,10 @@ ROOT = os.environ.get(
     "/efs-exp/agent-workspace/xuwenxi/datasets/realworld-dreamzero-lerobot",
 )
 CONFIG_DIR = os.path.join(PROJECT_DIR, "groot/vla/configs")
+TOKENIZER_DIR = os.environ.get(
+    "TOKENIZER_DIR",
+    "/efs-exp/agent-workspace/xuwenxi/checkpoints/umt5-xxl",
+)
 
 with initialize_config_dir(config_dir=CONFIG_DIR, version_base=None):
     cfg = compose(
@@ -29,6 +33,9 @@ with initialize_config_dir(config_dir=CONFIG_DIR, version_base=None):
         overrides=[
             "data=dreamzero/dual_arm_dexterous_hand_mixture_relative",
             f"egosteer_lerobot_root={ROOT}",
+            # Match the training launcher: load the tokenizer from the local
+            # checkpoint instead of the HuggingFace hub.
+            f"tokenizer_path={TOKENIZER_DIR}",
             "output_dir=/tmp/dreamzero-data-smoke",
             "dataset_shard_sampling_rate=0.1",
         ],
