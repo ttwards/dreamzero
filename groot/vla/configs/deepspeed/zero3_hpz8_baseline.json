@@ -24,21 +24,16 @@
   "zero_optimization": {
     "stage": 3,
     "zero_hpz_partition_size": 8,
-    "overlap_comm": true,
+    "overlap_comm": false,
     "contiguous_gradients": true,
     "reduce_scatter": true,
     "sub_group_size": 1000000000,
-    "reduce_bucket_size": 200000000,
-    "allgather_bucket_size": 200000000,
-    "stage3_prefetch_bucket_size": 50000000,
-    "stage3_param_persistence_threshold": 100000,
-    "stage3_max_live_parameters": 500000000,
-    "stage3_max_reuse_distance": 500000000,
-    "stage3_gather_16bit_weights_on_model_save": true,
-    "leaf_module": {
-      "classes": [
-        "groot.vla.model.dreamzero.modules.wan_video_dit_action_casual_chunk.CausalWanAttentionBlock"
-      ]
-    }
+    "reduce_bucket_size": 50000000,
+    "allgather_bucket_size": 50000000,
+    "stage3_prefetch_bucket_size": 20000000,
+    "stage3_param_persistence_threshold": 10000,
+    "stage3_max_live_parameters": 100000000,
+    "stage3_max_reuse_distance": 100000000,
+    "stage3_gather_16bit_weights_on_model_save": true
   }
 }

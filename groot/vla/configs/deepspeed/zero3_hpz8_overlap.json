@@ -34,11 +34,6 @@
     "stage3_param_persistence_threshold": 100000,
     "stage3_max_live_parameters": 500000000,
     "stage3_max_reuse_distance": 500000000,
-    "stage3_gather_16bit_weights_on_model_save": true,
-    "leaf_module": {
-      "classes": [
-        "groot.vla.model.dreamzero.modules.wan_video_dit_action_casual_chunk.CausalWanAttentionBlock"
-      ]
-    }
+    "stage3_gather_16bit_weights_on_model_save": true
   }
 }
