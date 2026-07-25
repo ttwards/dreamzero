@@ -615,18 +615,52 @@ class ProfCallback(transformers.TrainerCallback):
             float(getattr(event, "self_device_time_total", 0) or 0)
             for event in events
         )
+        profile_wall_us = sum(
+            float(getattr(event, "cpu_time_total", 0) or 0)
+            for event in events
+            if str(getattr(event, "key", "")).startswith("ProfilerStep")
+        )
+        stage_times = {}
+        for event in events:
+            key = str(getattr(event, "key", ""))
+            if not (
+                key.startswith("dreamzero/")
+                or key.startswith("Optimizer.step")
+            ):
+                continue
+            stage_times[key] = {
+                "calls": int(getattr(event, "count", 0) or 0),
+                "cpu_total_s": float(
+                    getattr(event, "cpu_time_total", 0) or 0
+                )
+                / 1e6,
+                "self_cpu_s": float(
+                    getattr(event, "self_cpu_time_total", 0) or 0
+                )
+                / 1e6,
+                "device_total_s": float(
+                    getattr(event, "device_time_total", 0) or 0
+                )
+                / 1e6,
+                "self_device_s": float(
+                    getattr(event, "self_device_time_total", 0) or 0
+                )
+                / 1e6,
+            }
         summary = {
             "global_rank": self.global_rank,
             "profile_start_step": self.profile_start_step,
             "warmup_steps": self.warmup_steps,
             "active_steps": self.active_steps,
             "total_profiled_flops": total_flops,
+            "profile_wall_time_s": profile_wall_us / 1e6,
             "total_self_device_time_s": total_device_us / 1e6,
             "profiled_tflops_per_s": (
-                total_flops / total_device_us / 1e6
-                if total_device_us > 0
+                total_flops / profile_wall_us / 1e6
+                if profile_wall_us > 0
                 else 0.0
             ),
+            "stage_times": stage_times,
         }
         (self.profile_dir / "summary.json").write_text(
             json.dumps(summary, indent=2)
