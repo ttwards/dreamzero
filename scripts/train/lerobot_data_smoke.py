@@ -11,7 +11,6 @@ Run from the repository root with the training runtime on PYTHONPATH:
 """
 import os
 
-import numpy as np
 import torch
 from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
@@ -62,25 +61,27 @@ with initialize_config_dir(config_dir=CONFIG_DIR, version_base=None):
 print("val_use_train_metadata:", cfg.val_use_train_metadata)
 
 
+def shape_of(value):
+    shape = getattr(value, "shape", None)
+    if shape is None and isinstance(value, (list, tuple)):
+        return f"list[{len(value)}]"
+    return tuple(shape) if shape is not None else None
+
+
 def describe(sample, tag):
     assert isinstance(sample, dict), f"{tag}: sample is {type(sample)}"
     for key in sorted(sample):
-        value = sample[key]
-        shape = getattr(value, "shape", None)
-        if shape is None and isinstance(value, (list, tuple)):
-            shape = f"list[{len(value)}]"
-        print(f"  {tag} {key}: {shape}")
+        print(f"  {tag} {key}: {shape_of(sample[key])}")
     # Post-transform fixed four-chunk context: 33 frames across 2 views,
     # 4 chunks x 24 action steps, 4 state steps, cached T5 embedding.
+    # Values may be bf16 torch tensors, so compare shapes without numpy.
     assert "images" in sample, f"{tag}: missing images"
-    images = np.asarray(sample["images"])
-    assert images.shape[0] == 33, f"{tag}: images {images.shape}"
-    state = np.asarray(sample["state"])
-    assert state.shape == (4, 64), f"{tag}: state {state.shape}"
-    action = np.asarray(sample["action"])
-    assert action.shape == (96, 48), f"{tag}: action {action.shape}"
-    emb = np.asarray(sample["task_embedding"])
-    assert emb.shape == (512, 4096), f"{tag}: task_embedding {emb.shape}"
+    assert shape_of(sample["images"])[0] == 33, f"{tag}: images {shape_of(sample['images'])}"
+    assert shape_of(sample["state"]) == (4, 64), f"{tag}: state {shape_of(sample['state'])}"
+    assert shape_of(sample["action"]) == (96, 48), f"{tag}: action {shape_of(sample['action'])}"
+    assert shape_of(sample["task_embedding"]) == (512, 4096), (
+        f"{tag}: task_embedding {shape_of(sample['task_embedding'])}"
+    )
     return sample
 
 
