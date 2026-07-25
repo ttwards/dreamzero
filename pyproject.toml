@@ -80,7 +80,10 @@ dependencies = [
     "tensorrt",
     "openpi-client==0.1.1",
     "huggingface_hub",
-    "decord2",
+    # Video backend imported by groot.vla.common.utils.misc.video_utils and
+    # selected by the LeRobot data configs. Pin the tested CPU wheel so worker
+    # runtime builds include the module actually imported at training time.
+    "decord==0.6.0",
     "deepspeed",
     "tiktoken",
     "sentencepiece",
