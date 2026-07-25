@@ -34,4 +34,4 @@ def test_validation_limit_is_split_evenly_across_workers():
 
 
 def test_unlimited_training_iterator_is_unchanged():
-    assert list(_finite_dataset(None)) == list(range(20))
+    assert list(iter(_finite_dataset(None))) == list(range(20))
