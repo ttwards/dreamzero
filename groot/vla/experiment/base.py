@@ -1594,6 +1594,21 @@ class BaseTrainer(transformers.Trainer):
 
         return (loss, outputs) if return_outputs else loss
 
+    def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
+        """Route evaluation through ``compute_loss`` like training.
+
+        The stock implementation falls back to ``model(**inputs)`` whenever
+        the batch has no labels, which explodes the DreamZero batch dict into
+        keyword arguments that ``VLA.forward`` does not accept.  Evaluation
+        only consumes scalar losses (aggregated in ``evaluation_loop``), so
+        logits and labels stay ``None``.
+        """
+        with self.compute_loss_context_manager():
+            loss, _ = self.compute_loss(model, inputs, return_outputs=True)
+        if loss is not None:
+            loss = loss.detach().mean()
+        return (loss, None, None)
+
     def evaluation_loop(
         self,
         dataloader,
