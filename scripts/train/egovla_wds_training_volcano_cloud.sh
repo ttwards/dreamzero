@@ -56,13 +56,12 @@ export NVIMGCODEC_DECODE="${NVIMGCODEC_DECODE:-true}"
 # "grouped" keeps PyTorch's A800-optimized FlashAttention kernel while
 # batching query groups that share K/V. "flex" remains available for A/B.
 export TEACHER_FORCING_ATTN_BACKEND="${TEACHER_FORCING_ATTN_BACKEND:-grouped}"
-# DeepSpeed 0.18.4 DeepCompile has one process group for both parameter
-# all-gather and gradient reduce-scatter.  It therefore cannot use hpZ's
-# node-local secondary parameter shard while keeping gradients globally
-# sharded.  Keep the 64-rank HSDP-like topology as the production default.
-# Single-node DeepCompile experiments can opt in with TORCH_COMPILE=true and
-# zero3_hpz8_deepcompile.json.
-export TORCH_COMPILE="${TORCH_COMPILE:-false}"
+# Regional compilation covers only repeated Wan block compute, leaving ZeRO-3
+# communication hooks eager and preserving hpZ's node-local parameter group.
+# This is safe to combine with the 64-rank HSDP-like topology. DeepSpeed 0.18.4
+# whole-model DeepCompile remains a separate single-node experiment because it
+# cannot preserve that split communication topology.
+export TORCH_COMPILE="${TORCH_COMPILE:-true}"
 export TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-auto}"
