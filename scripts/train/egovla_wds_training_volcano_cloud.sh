@@ -66,12 +66,20 @@ export TORCH_COMPILE="${TORCH_COMPILE:-false}"
 export TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-auto}"
-export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
-# Compile each repeated Wan transformer block as a reusable region. This keeps
-# ZeRO-3 gather/release hooks outside Dynamo and avoids tracing one giant graph
-# through 40 checkpointed blocks. Frozen T5/CLIP remain separate targets. VAE
-# is stateful and can be tested separately with TORCH_COMPILE_SCOPE=vae.
-export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks_frozen}"
+# Compile each repeated Wan transformer block as a reusable full-graph region.
+# This keeps ZeRO-3 gather/release hooks outside Dynamo and avoids tracing one
+# giant graph through 40 checkpointed blocks. Frozen T5/CLIP/VAE remain
+# separate opt-in experiments.
+export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks}"
+if [[ -z "${TORCH_COMPILE_FULLGRAPH+x}" ]]; then
+    if [[ "$TORCH_COMPILE_SCOPE" == "wan_blocks" ]]; then
+        export TORCH_COMPILE_FULLGRAPH=true
+    else
+        export TORCH_COMPILE_FULLGRAPH=false
+    fi
+else
+    export TORCH_COMPILE_FULLGRAPH
+fi
 export TORCH_COMPILE_DIAGNOSTICS="${TORCH_COMPILE_DIAGNOSTICS:-false}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 # This setting is per rank. Eight local ranks times 12 workers gives a

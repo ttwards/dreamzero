@@ -475,11 +475,15 @@ class TargetedCompileCallback(TrainerCallback):
             return
 
         counters = getattr(getattr(torch, "_dynamo", None), "utils", None)
+        guard_failures = getattr(counters, "guard_failures", {})
         counters = getattr(counters, "counters", {})
         frames = dict(counters.get("frames", {}))
         stats = dict(counters.get("stats", {}))
         aot = dict(counters.get("aot_autograd", {}))
         inductor = dict(counters.get("inductor", {}))
+        guard_failure_count = sum(
+            len(failures) for failures in guard_failures.values()
+        )
         summary = {
             "step": state.global_step,
             "frames_total": frames.get("total", 0),
@@ -487,7 +491,11 @@ class TargetedCompileCallback(TrainerCallback):
             "unique_graphs": stats.get("unique_graphs", 0),
             "calls_captured": stats.get("calls_captured", 0),
             "graph_breaks": self._counter_total(counters.get("graph_break", {})),
-            "recompiles": self._counter_total(counters.get("recompiles", {})),
+            "recompiles": max(
+                guard_failure_count,
+                self._counter_total(counters.get("recompiles", {})),
+            ),
+            "guard_failures": guard_failure_count,
             "aot_total": aot.get("total", 0),
             "aot_ok": aot.get("ok", 0),
             "inductor_fxgraph_cache_hit": inductor.get("fxgraph_cache_hit", 0),
@@ -2004,9 +2012,7 @@ class BaseExperiment(ABC):
             "yes",
             "on",
         }
-        compile_scope = os.environ.get(
-            "TORCH_COMPILE_SCOPE", "wan_blocks_frozen"
-        ).lower()
+        compile_scope = os.environ.get("TORCH_COMPILE_SCOPE", "wan_blocks").lower()
         targeted_compile = compile_requested and compile_scope not in {"all", "none"}
         if targeted_compile:
             training_args.torch_compile = False

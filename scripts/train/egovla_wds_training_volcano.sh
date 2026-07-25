@@ -84,8 +84,16 @@ TORCH_COMPILE="${TORCH_COMPILE:-false}"
 TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
 TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-auto}"
-TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-false}"
-TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks_frozen}"
+TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks}"
+if [ -z "${TORCH_COMPILE_FULLGRAPH+x}" ]; then
+    # The regional Wan block has been validated as one complete graph. Legacy
+    # whole-Wan and frozen-module experiments keep permissive graph discovery.
+    if [ "$TORCH_COMPILE_SCOPE" = "wan_blocks" ]; then
+        TORCH_COMPILE_FULLGRAPH=true
+    else
+        TORCH_COMPILE_FULLGRAPH=false
+    fi
+fi
 TORCH_COMPILE_DIAGNOSTICS="${TORCH_COMPILE_DIAGNOSTICS:-false}"
 TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
 TORCHINDUCTOR_COMPILE_THREADS="${TORCHINDUCTOR_COMPILE_THREADS:-}"
@@ -186,6 +194,9 @@ export WANDB_PROJECT
 if [ "$TORCH_COMPILE" = "true" ]; then
     # These Accelerate options apply only to the explicit whole-model path.
     # Targeted mode compiles selected forward methods in TargetedCompileCallback.
+    export TORCH_COMPILE TORCH_COMPILE_BACKEND TORCH_COMPILE_MODE
+    export TORCH_COMPILE_DYNAMIC TORCH_COMPILE_FULLGRAPH TORCH_COMPILE_SCOPE
+    export TORCH_COMPILE_DIAGNOSTICS
     if [ "$TRAINER_TORCH_COMPILE" = "true" ]; then
         if [ "$TORCH_COMPILE_DYNAMIC" != "auto" ]; then
             export ACCELERATE_DYNAMO_USE_DYNAMIC="$TORCH_COMPILE_DYNAMIC"
@@ -311,7 +322,6 @@ echo "deepspeed config=$DEEPSPEED_CONFIG"
 echo "teacher-forcing attention=$TEACHER_FORCING_ATTN_BACKEND"
 echo "torch compile requested=$TORCH_COMPILE scope=$TORCH_COMPILE_SCOPE whole_model=$TRAINER_TORCH_COMPILE backend=$TORCH_COMPILE_BACKEND mode=$TORCH_COMPILE_MODE dynamic=$TORCH_COMPILE_DYNAMIC fullgraph=$TORCH_COMPILE_FULLGRAPH"
 if [ "$TORCH_COMPILE" = "true" ]; then
-    export TORCH_COMPILE_DIAGNOSTICS
     echo "torch inductor cache=$TORCHINDUCTOR_CACHE_DIR"
     if [ -n "$TORCHINDUCTOR_COMPILE_THREADS" ]; then
         echo "torch inductor compile workers=${TORCHINDUCTOR_COMPILE_THREADS}/rank ($((TORCHINDUCTOR_COMPILE_THREADS * GPUS_PER_NODE))/node)"
