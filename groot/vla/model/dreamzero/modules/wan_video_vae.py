@@ -1206,15 +1206,28 @@ class WanVideoVAE(nn.Module):
         return video.clamp_(-1, 1)
 
     def encode(self, videos, tiled=False, tile_size=(34, 34), tile_stride=(18, 16)):
+        # The underlying causal VAE supports a real batch dimension.  Keep the
+        # non-tiled path batched instead of serializing it into B calls, which
+        # also lets callers jointly encode target and condition videos.
+        if not tiled:
+            return self.single_encode(videos)
+
+        scaled_tile_size = (
+            tile_size[0] * self.upsampling_factor,
+            tile_size[1] * self.upsampling_factor,
+        )
+        scaled_tile_stride = (
+            tile_stride[0] * self.upsampling_factor,
+            tile_stride[1] * self.upsampling_factor,
+        )
         hidden_states = []
         for video in videos:
             video = video.unsqueeze(0)
-            if tiled:
-                tile_size = (tile_size[0] * self.upsampling_factor, tile_size[1] * self.upsampling_factor)
-                tile_stride = (tile_stride[0] * self.upsampling_factor, tile_stride[1] * self.upsampling_factor)
-                hidden_state = self.tiled_encode(video, tile_size, tile_stride)
-            else:
-                hidden_state = self.single_encode(video)
+            hidden_state = self.tiled_encode(
+                video,
+                scaled_tile_size,
+                scaled_tile_stride,
+            )
             hidden_state = hidden_state.squeeze(0)
             hidden_states.append(hidden_state)
         hidden_states = torch.stack(hidden_states)

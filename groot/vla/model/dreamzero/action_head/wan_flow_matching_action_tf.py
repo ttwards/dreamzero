@@ -585,6 +585,65 @@ class WANPolicyHead(ActionHead):
                 latents = self.vae.encode(input_video, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride)
             return latents
 
+    @staticmethod
+    def _build_first_frame_condition_video(input_video):
+        """Keep frame 0 and zero-pad exactly the remaining T-1 frames."""
+        if input_video.ndim != 5:
+            raise ValueError(
+                "Expected video with shape [B,C,T,H,W], got "
+                f"{tuple(input_video.shape)}"
+            )
+        if input_video.shape[2] < 1:
+            raise ValueError("Cannot build an image condition from an empty video")
+        return torch.cat(
+            [
+                input_video[:, :, :1],
+                torch.zeros_like(input_video[:, :, 1:]),
+            ],
+            dim=2,
+        )
+
+    def encode_video_with_condition(
+        self,
+        input_video,
+        tiled=True,
+        tile_size=(34, 34),
+        tile_stride=(18, 16),
+    ):
+        """Jointly encode a target video and its first-frame condition."""
+        batch_size = input_video.shape[0]
+        condition_video = self._build_first_frame_condition_video(input_video)
+        vae_input = torch.cat([input_video, condition_video], dim=0)
+
+        with torch.profiler.record_function(
+            "dreamzero/vae_video_condition_encode"
+        ):
+            self._ensure_vae_on_device(vae_input)
+            with torch.no_grad():
+                encoded = self.vae.encode(
+                    vae_input,
+                    tiled=tiled,
+                    tile_size=tile_size,
+                    tile_stride=tile_stride,
+                )
+
+        latents, condition = encoded.split(batch_size, dim=0)
+        num_t = condition.shape[2]
+        h_latent, w_latent = condition.shape[3], condition.shape[4]
+        mask = torch.zeros(
+            batch_size,
+            4,
+            num_t,
+            h_latent,
+            w_latent,
+            dtype=condition.dtype,
+            device=condition.device,
+        )
+        mask[:, :, :1] = 1
+        new_image = condition[:, :, :1]
+        condition = torch.cat([mask, condition], dim=1)
+        return latents, condition, new_image
+
     def encode_image(self, image, num_frames, height, width):
         with torch.amp.autocast(dtype=torch.bfloat16, device_type=torch.device(self._device).type):
             batch_size = image.shape[0]
@@ -808,12 +867,12 @@ class WANPolicyHead(ActionHead):
                 :, segment_index, :raw_frames
             ]
             segment_video = self._prepare_packed_video(segment_video)
-            latents = self.encode_video(
+            latents, condition, _ = self.encode_video_with_condition(
                 segment_video,
                 self.tiled,
                 (self.tile_size_height, self.tile_size_width),
                 (self.tile_stride_height, self.tile_stride_width),
-            ).to(self._device)
+            )
             expected_latent_frames = (
                 chunk_count * self.num_frame_per_block + 1
             )
@@ -823,14 +882,7 @@ class WANPolicyHead(ActionHead):
                     f"latent frames; expected {expected_latent_frames}"
                 )
 
-            _, _, raw_frame_count, height, width = segment_video.shape
             first_image = segment_video[:, :, :1].transpose(1, 2)
-            condition, _ = self.encode_image_condition(
-                first_image,
-                raw_frame_count,
-                height,
-                width,
-            )
             if condition.shape[2] != expected_latent_frames:
                 raise ValueError(
                     f"Segment {segment_index} condition has "
@@ -1315,13 +1367,23 @@ class WANPolicyHead(ActionHead):
                     align_corners=False,
                 ).reshape(b, c, t, target_h, target_w)
 
-        latents = self.encode_video(videos, self.tiled, (self.tile_size_height, self.tile_size_width), (self.tile_stride_height, self.tile_stride_width))
+        latents, ys, _ = self.encode_video_with_condition(
+            videos,
+            self.tiled,
+            (self.tile_size_height, self.tile_size_width),
+            (self.tile_stride_height, self.tile_stride_width),
+        )
 
         # print("latents shape", latents.shape, self.dtype)
-        _, _, num_frames, height, width = videos.shape
         image = videos[:, :, :1].transpose(1, 2)
-
-        clip_feas, ys, _ = self.encode_image(image, num_frames, height, width)
+        with torch.amp.autocast(
+            dtype=torch.bfloat16,
+            device_type=torch.device(self._device).type,
+        ):
+            with torch.profiler.record_function(
+                "dreamzero/clip_image_encode"
+            ):
+                clip_feas = self.image_encoder.encode_image(image)
 
         latents = latents.to(self._device)
         clip_feas = clip_feas.to(self._device)
