@@ -89,7 +89,10 @@ def test_clip_is_detached_only_for_explicit_clip_compile_scope():
     clip_target.image_encoder = nn.Linear(3, 2)
     with patch.dict(
         os.environ,
-        {"TORCH_COMPILE": "true", "TORCH_COMPILE_SCOPE": "vae_clip"},
+        {
+            "TORCH_COMPILE": "true",
+            "TORCH_COMPILE_SCOPE": "wan_blocks_vae_clip",
+        },
     ):
         clip_target._detach_frozen_image_encoder_for_compile()
 

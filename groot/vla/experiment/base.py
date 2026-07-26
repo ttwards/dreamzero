@@ -341,7 +341,9 @@ class TargetedCompileCallback(TrainerCallback):
     block.  DeepSpeed's ZeRO-3 hooks remain on the module call boundary, outside
     the compiled ``forward``.  Because Dynamo caches by Python code object, the
     generated block graphs can be reused by all structurally identical blocks.
-    ``wan`` retains the whole-Wan target for diagnostics and comparison.
+    ``wan_blocks_vae_clip`` adds two independent frozen leaf graphs without
+    combining them with the Wan regions.  ``wan`` retains the whole-Wan target
+    for diagnostics and comparison.
 
     The ``frozen`` scopes intentionally target only T5 and CLIP.  ``clip`` and
     ``vae_clip`` are narrower opt-in scopes for the frozen image path.  The VAE
@@ -530,7 +532,11 @@ class TargetedCompileCallback(TrainerCallback):
         regional_blocks = []
         if self.scope in {"wan", "wan_frozen"}:
             targets.append((action_head.model, "forward", "Wan DiT"))
-        if self.scope in {"wan_blocks", "wan_blocks_frozen"}:
+        if self.scope in {
+            "wan_blocks",
+            "wan_blocks_frozen",
+            "wan_blocks_vae_clip",
+        }:
             regional_blocks = list(getattr(action_head.model, "blocks", ()))
             if not regional_blocks:
                 raise RuntimeError(
@@ -544,6 +550,7 @@ class TargetedCompileCallback(TrainerCallback):
             "frozen",
             "wan_frozen",
             "wan_blocks_frozen",
+            "wan_blocks_vae_clip",
             "clip",
             "vae_clip",
         }:
@@ -554,13 +561,13 @@ class TargetedCompileCallback(TrainerCallback):
                     "frozen CLIP visual",
                 )
             )
-        if self.scope in {"vae", "vae_clip"}:
+        if self.scope in {"vae", "vae_clip", "wan_blocks_vae_clip"}:
             targets.append((action_head.vae.model, "encode", "frozen VAE encode"))
         if not targets and not regional_blocks:
             raise ValueError(
                 f"Unsupported targeted compile scope={self.scope!r}; "
-                "use wan_blocks, wan_blocks_frozen, wan, frozen, "
-                "wan_frozen, clip, vae, vae_clip, or all"
+                "use wan_blocks, wan_blocks_frozen, wan_blocks_vae_clip, "
+                "wan, frozen, wan_frozen, clip, vae, vae_clip, or all"
             )
 
         rank = int(os.environ.get("RANK", "0"))

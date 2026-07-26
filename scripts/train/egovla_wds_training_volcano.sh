@@ -88,7 +88,8 @@ TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks}"
 if [ -z "${TORCH_COMPILE_FULLGRAPH+x}" ]; then
     # The regional Wan block has been validated as one complete graph. Legacy
     # whole-Wan and frozen-module experiments keep permissive graph discovery.
-    if [ "$TORCH_COMPILE_SCOPE" = "wan_blocks" ]; then
+    if [ "$TORCH_COMPILE_SCOPE" = "wan_blocks" ] ||
+       [ "$TORCH_COMPILE_SCOPE" = "wan_blocks_vae_clip" ]; then
         TORCH_COMPILE_FULLGRAPH=true
     else
         TORCH_COMPILE_FULLGRAPH=false
@@ -108,9 +109,9 @@ PROFILE_UPLOAD_WANDB="${PROFILE_UPLOAD_WANDB:-true}"
 PROFILE_DIR="${PROFILE_DIR:-/tmp/dreamzero-profiler/${OUTPUT_DIR##*/}}"
 
 case "$TORCH_COMPILE_SCOPE" in
-    wan_blocks|wan_blocks_frozen|wan|frozen|wan_frozen|clip|vae|vae_clip|all|none) ;;
+    wan_blocks|wan_blocks_frozen|wan_blocks_vae_clip|wan|frozen|wan_frozen|clip|vae|vae_clip|all|none) ;;
     *)
-        echo "Unsupported TORCH_COMPILE_SCOPE=$TORCH_COMPILE_SCOPE; use wan_blocks, wan_blocks_frozen, wan, frozen, wan_frozen, clip, vae, vae_clip, all, or none." >&2
+        echo "Unsupported TORCH_COMPILE_SCOPE=$TORCH_COMPILE_SCOPE; use wan_blocks, wan_blocks_frozen, wan_blocks_vae_clip, wan, frozen, wan_frozen, clip, vae, vae_clip, all, or none." >&2
         exit 2
         ;;
 esac

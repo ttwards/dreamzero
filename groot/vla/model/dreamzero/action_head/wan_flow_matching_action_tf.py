@@ -363,7 +363,11 @@ class WANPolicyHead(ActionHead):
             "on",
         }
         compile_scope = os.getenv("TORCH_COMPILE_SCOPE", "").lower()
-        if not compile_requested or compile_scope not in {"clip", "vae_clip"}:
+        if not compile_requested or compile_scope not in {
+            "clip",
+            "vae_clip",
+            "wan_blocks_vae_clip",
+        }:
             self._image_encoder_detached = False
             return
 

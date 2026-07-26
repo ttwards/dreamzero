@@ -71,7 +71,8 @@ export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-auto}"
 # separate opt-in experiments.
 export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks}"
 if [[ -z "${TORCH_COMPILE_FULLGRAPH+x}" ]]; then
-    if [[ "$TORCH_COMPILE_SCOPE" == "wan_blocks" ]]; then
+    if [[ "$TORCH_COMPILE_SCOPE" == "wan_blocks" ||
+          "$TORCH_COMPILE_SCOPE" == "wan_blocks_vae_clip" ]]; then
         export TORCH_COMPILE_FULLGRAPH=true
     else
         export TORCH_COMPILE_FULLGRAPH=false
