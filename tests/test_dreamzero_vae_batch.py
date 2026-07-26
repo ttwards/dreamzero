@@ -1,3 +1,6 @@
+import os
+from unittest.mock import patch
+
 import torch
 from torch import nn
 
@@ -78,3 +81,33 @@ def test_non_tiled_vae_encode_uses_one_real_batch_call():
 
     assert vae.model.batch_sizes == [4]
     torch.testing.assert_close(encoded, videos * 2)
+
+
+def test_clip_is_detached_only_for_explicit_clip_compile_scope():
+    clip_target = WANPolicyHead.__new__(WANPolicyHead)
+    nn.Module.__init__(clip_target)
+    clip_target.image_encoder = nn.Linear(3, 2)
+    with patch.dict(
+        os.environ,
+        {"TORCH_COMPILE": "true", "TORCH_COMPILE_SCOPE": "vae_clip"},
+    ):
+        clip_target._detach_frozen_image_encoder_for_compile()
+
+    assert "image_encoder" not in clip_target._modules
+    assert clip_target._image_encoder_detached
+    assert not clip_target._image_encoder_device_ready
+    clip_target._ensure_image_encoder_on_device(torch.zeros(1))
+    assert clip_target._image_encoder_device_ready
+    assert next(clip_target.image_encoder.parameters()).dtype == torch.bfloat16
+
+    vae_only = WANPolicyHead.__new__(WANPolicyHead)
+    nn.Module.__init__(vae_only)
+    vae_only.image_encoder = nn.Linear(3, 2)
+    with patch.dict(
+        os.environ,
+        {"TORCH_COMPILE": "true", "TORCH_COMPILE_SCOPE": "vae"},
+    ):
+        vae_only._detach_frozen_image_encoder_for_compile()
+
+    assert "image_encoder" in vae_only._modules
+    assert not vae_only._image_encoder_detached

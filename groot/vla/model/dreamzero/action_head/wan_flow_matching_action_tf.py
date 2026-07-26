@@ -322,6 +322,7 @@ class WANPolicyHead(ActionHead):
         print("defer_lora_injection@@", self.defer_lora_injection)
         self.set_trainable_parameters(config.tune_projector, config.tune_diffusion_model)
         self._detach_frozen_vae_from_zero3_tree()
+        self._detach_frozen_image_encoder_for_compile()
 
     def _detach_frozen_vae_from_zero3_tree(self):
         """Keep the causal VAE local instead of sharding it with ZeRO-3.
@@ -344,6 +345,40 @@ class WANPolicyHead(ActionHead):
         vae.eval()
         self._vae_device_ready = False
         print("Frozen VAE kept replicated outside the ZeRO-3 parameter tree")
+
+    def _detach_frozen_image_encoder_for_compile(self):
+        """Keep CLIP local when its visual forward is a compile target.
+
+        DeepSpeed ZeRO-3 installs pre-forward hooks on CLIP's parameterized
+        children.  Compiling ``visual.forward`` with ``fullgraph=True`` then
+        encounters those disabled hook callables inside the graph.  Detaching
+        only for the explicit CLIP scopes keeps the frozen encoder replicated,
+        lets its child modules remain hook-free, and preserves the normal ZeRO
+        path for every other training configuration.
+        """
+        compile_requested = os.getenv("TORCH_COMPILE", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        compile_scope = os.getenv("TORCH_COMPILE_SCOPE", "").lower()
+        if not compile_requested or compile_scope not in {"clip", "vae_clip"}:
+            self._image_encoder_detached = False
+            return
+
+        image_encoder = self._modules.pop("image_encoder", None)
+        if image_encoder is None:
+            return
+        self.__dict__["image_encoder"] = image_encoder
+        image_encoder.requires_grad_(False)
+        image_encoder.eval()
+        self._image_encoder_detached = True
+        self._image_encoder_device_ready = False
+        print(
+            "Frozen CLIP kept replicated outside the ZeRO-3 parameter tree "
+            f"for targeted compile scope={compile_scope}"
+        )
 
     def set_trainable_parameters(self, tune_projector: bool, tune_diffusion_model: bool):
         self.tune_projector = tune_projector
@@ -578,6 +613,19 @@ class WANPolicyHead(ActionHead):
             self.vae.eval()
             self._vae_device_ready = True
 
+    def _ensure_image_encoder_on_device(self, ref_tensor):
+        """Lazily move an explicitly detached frozen CLIP to its rank GPU."""
+        if (
+            getattr(self, "_image_encoder_detached", False)
+            and not getattr(self, "_image_encoder_device_ready", False)
+        ):
+            self.image_encoder.to(
+                device=ref_tensor.device,
+                dtype=torch.bfloat16,
+            )
+            self.image_encoder.eval()
+            self._image_encoder_device_ready = True
+
     def encode_video(self, input_video, tiled=True, tile_size=(34, 34), tile_stride=(18, 16)):
         with torch.profiler.record_function("dreamzero/vae_video_encode"):
             self._ensure_vae_on_device(input_video)
@@ -647,6 +695,7 @@ class WANPolicyHead(ActionHead):
     def encode_image(self, image, num_frames, height, width):
         with torch.amp.autocast(dtype=torch.bfloat16, device_type=torch.device(self._device).type):
             batch_size = image.shape[0]
+            self._ensure_image_encoder_on_device(image)
             with torch.profiler.record_function("dreamzero/clip_image_encode"):
                 clip_context = self.image_encoder.encode_image(image)
             image_input = image.transpose(1, 2)
@@ -946,6 +995,7 @@ class WANPolicyHead(ActionHead):
             dtype=torch.bfloat16,
             device_type=torch.device(self._device).type,
         ):
+            self._ensure_image_encoder_on_device(packed_first_images)
             with torch.profiler.record_function(
                 "dreamzero/clip_image_encode"
             ):
@@ -1380,6 +1430,7 @@ class WANPolicyHead(ActionHead):
             dtype=torch.bfloat16,
             device_type=torch.device(self._device).type,
         ):
+            self._ensure_image_encoder_on_device(image)
             with torch.profiler.record_function(
                 "dreamzero/clip_image_encode"
             ):
@@ -2076,6 +2127,8 @@ class WANPolicyHead(ActionHead):
         self.model.to(device=self._device, dtype=torch.bfloat16)
         self.text_encoder.to(device=self._device, dtype=torch.bfloat16)
         self.image_encoder.to(device=self._device, dtype=torch.bfloat16)
+        if getattr(self, "_image_encoder_detached", False):
+            self._image_encoder_device_ready = True
         self.vae.to(device=self._device, dtype=torch.bfloat16)
         import os
         ENABLE_TENSORRT = os.getenv("ENABLE_TENSORRT", "False").lower() == "true"
