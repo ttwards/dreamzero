@@ -57,6 +57,7 @@ val_dataset:
     balance_dataset_weights: false
     seed: 43
     shard_sampling_rate: ${dataset_shard_sampling_rate}
+    skip_samples_without_precomputed_text_embeddings: true
     # Four dataloader workers return one accepted fixed-4-chunk sample each,
     # giving every distributed rank the same finite validation budget.
     num_shards_to_sample: 4096

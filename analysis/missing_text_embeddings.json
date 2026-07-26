@@ -1,0 +1,2470 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-07-26T14:17:33.146945+00:00",
+  "dataset_root": "/efs-exp/agent-workspace/xuwenxi/datasets/realworld-dreamzero-lerobot",
+  "cache_key": "sha1(raw_task_text)[:16]",
+  "summary": {
+    "dataset_count": 4,
+    "task_rows": 23525,
+    "unique_task_texts_per_dataset": 23525,
+    "present_unique_embeddings": 23224,
+    "missing_unique_embeddings": 301,
+    "affected_task_rows": 301
+  },
+  "datasets": [
+    {
+      "dataset": "dagger",
+      "tasks_file": "dagger/meta/tasks.parquet",
+      "embedding_dir": "dagger/text_embs",
+      "task_rows": 2597,
+      "unique_task_texts": 2597,
+      "present_unique_embeddings": 2597,
+      "missing_unique_embeddings": 0,
+      "affected_task_rows": 0,
+      "missing": []
+    },
+    {
+      "dataset": "multitask",
+      "tasks_file": "multitask/meta/tasks.parquet",
+      "embedding_dir": "multitask/text_embs",
+      "task_rows": 20779,
+      "unique_task_texts": 20779,
+      "present_unique_embeddings": 20480,
+      "missing_unique_embeddings": 299,
+      "affected_task_rows": 299,
+      "missing": [
+        {
+          "task": "Put the blue box into the basin with your right hand, the orange box into the basin with your left hand, and the iced black tea ",
+          "sha1_16": "92884e09cd01d3e2",
+          "task_indices": [
+            175
+          ],
+          "expected_embedding": "text_embs/92884e09cd01d3e2.pt"
+        },
+        {
+          "task": "The right hand came in from the edge of the desk, reached out to pick up a stack of red cards on the workbench, took them apart ",
+          "sha1_16": "65b43845695c26f2",
+          "task_indices": [
+            220
+          ],
+          "expected_embedding": "text_embs/65b43845695c26f2.pt"
+        },
+        {
+          "task": "Pick up the syringe from the table where the Oreo is placed with your right hand, grasp the blue handle of the piston with your ",
+          "sha1_16": "5b763ae0200362c6",
+          "task_indices": [
+            266
+          ],
+          "expected_embedding": "text_embs/5b763ae0200362c6.pt"
+        },
+        {
+          "task": "Unfold a folding fan with a red wooden frame and a landscape painting on beige paper on the fan surface, and lay it flat on the ",
+          "sha1_16": "3e27e999e37313d1",
+          "task_indices": [
+            323
+          ],
+          "expected_embedding": "text_embs/3e27e999e37313d1.pt"
+        },
+        {
+          "task": "Stack three foam blocks by size: the largest one at the bottom is light blue, the middle one is medium purple, and the smallest ",
+          "sha1_16": "5c21562b36927524",
+          "task_indices": [
+            504
+          ],
+          "expected_embedding": "text_embs/5c21562b36927524.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the card. Separate the cards with your left hand. Grab the scattered cards. Push them together ",
+          "sha1_16": "b7a80aa2af4113c3",
+          "task_indices": [
+            519
+          ],
+          "expected_embedding": "text_embs/b7a80aa2af4113c3.pt"
+        },
+        {
+          "task": "Extend your right hand towards the object in the green area. Slide the object to the left through the yellow area. Keep pushing ",
+          "sha1_16": "45096cf633b28224",
+          "task_indices": [
+            555
+          ],
+          "expected_embedding": "text_embs/45096cf633b28224.pt"
+        },
+        {
+          "task": "Pick up a plastic container, a blue snack bag, a white package, and a blue-green small bag, and place them into a cardboard box ",
+          "sha1_16": "23d31c51e9e690b8",
+          "task_indices": [
+            663
+          ],
+          "expected_embedding": "text_embs/23d31c51e9e690b8.pt"
+        },
+        {
+          "task": "Stack three cubes by size: place the smallest orange cube on top of the medium-sized purple cube, and then place both on top of ",
+          "sha1_16": "1166e9a45972f4df",
+          "task_indices": [
+            685
+          ],
+          "expected_embedding": "text_embs/1166e9a45972f4df.pt"
+        },
+        {
+          "task": "Pick up a plastic bottle, pour the liquid inside into a white cup, and then put the bottle back to its original position on the ",
+          "sha1_16": "e7c8fcb444133d09",
+          "task_indices": [
+            1015
+          ],
+          "expected_embedding": "text_embs/e7c8fcb444133d09.pt"
+        },
+        {
+          "task": "Stack three colored cubes by size: the largest one at the bottom is white, the medium-sized one is purple, and the smallest one ",
+          "sha1_16": "b05aef4020832ca6",
+          "task_indices": [
+            1309
+          ],
+          "expected_embedding": "text_embs/b05aef4020832ca6.pt"
+        },
+        {
+          "task": "Stack three cubes by size: the largest one (white) at the bottom, the middle one (purple), and the smallest one (orange-red) at ",
+          "sha1_16": "ecfa8cad3a802a8b",
+          "task_indices": [
+            1379
+          ],
+          "expected_embedding": "text_embs/ecfa8cad3a802a8b.pt"
+        },
+        {
+          "task": "Stack three cubes of different colors in order of size: the large white one at the bottom, the medium purple one in the middle, ",
+          "sha1_16": "b276d0312eea12d6",
+          "task_indices": [
+            1380
+          ],
+          "expected_embedding": "text_embs/b276d0312eea12d6.pt"
+        },
+        {
+          "task": "Hold the wooden stick with your right hand, lift it up, and then press it into the metal bowl containing nutrient soil to crush ",
+          "sha1_16": "afee65f6fa4d45f7",
+          "task_indices": [
+            1482
+          ],
+          "expected_embedding": "text_embs/afee65f6fa4d45f7.pt"
+        },
+        {
+          "task": "Put the yogurt and the drink on the left side of the cookies into the basket with your left hand, and then put the cola and the ",
+          "sha1_16": "5edb390213798983",
+          "task_indices": [
+            1587
+          ],
+          "expected_embedding": "text_embs/5edb390213798983.pt"
+        },
+        {
+          "task": "Put the biscuits into the basket with your right hand, and then put the cola, yogurt, prune juice and milk into the basket with ",
+          "sha1_16": "a01c2b042ebb2489",
+          "task_indices": [
+            1723
+          ],
+          "expected_embedding": "text_embs/a01c2b042ebb2489.pt"
+        },
+        {
+          "task": "Put the biscuits and yogurt into the basket with your right hand, and put the prune juice, milk and leftover Coca-Cola into the ",
+          "sha1_16": "1e4f688b18c52052",
+          "task_indices": [
+            1783
+          ],
+          "expected_embedding": "text_embs/1e4f688b18c52052.pt"
+        },
+        {
+          "task": "The right hand supports the heel part of the slippers. Hold the handle of the brush in your left hand. Use a grey shoe brush to ",
+          "sha1_16": "94308686873193f6",
+          "task_indices": [
+            1815
+          ],
+          "expected_embedding": "text_embs/94308686873193f6.pt"
+        },
+        {
+          "task": "Use a shoe brush with a gray handle to brush the black-soled slippers. Work together with both hands to stabilize and scrub the ",
+          "sha1_16": "752ff2a5d8cb2342",
+          "task_indices": [
+            1940
+          ],
+          "expected_embedding": "text_embs/752ff2a5d8cb2342.pt"
+        },
+        {
+          "task": "Put the oreo and the snacks in yellow packaging into the basket with your right hand, and then add the cookies, prune juice and ",
+          "sha1_16": "bd18d9aa05dd1983",
+          "task_indices": [
+            2047
+          ],
+          "expected_embedding": "text_embs/bd18d9aa05dd1983.pt"
+        },
+        {
+          "task": "Pick up the black sieve on the table with your right hand and shake it. Put the sieve back on the table and open the lid of the ",
+          "sha1_16": "a9f07ca9aa18a5f3",
+          "task_indices": [
+            2110
+          ],
+          "expected_embedding": "text_embs/a9f07ca9aa18a5f3.pt"
+        },
+        {
+          "task": "Put the toothpaste tube and the white toothbrush into the small white cup located in the center of the bottom of the table with ",
+          "sha1_16": "49ec8efaa4a824fe",
+          "task_indices": [
+            2228
+          ],
+          "expected_embedding": "text_embs/49ec8efaa4a824fe.pt"
+        },
+        {
+          "task": "First, put the pure water into the basket with your right hand, then add the green tea and yogurt with your left hand. Finally, ",
+          "sha1_16": "ad2d9c24d30e85b5",
+          "task_indices": [
+            2308
+          ],
+          "expected_embedding": "text_embs/ad2d9c24d30e85b5.pt"
+        },
+        {
+          "task": "Pick up a yellow tennis ball from the table with your right hand and then put it into an upright transparent plastic cup on the ",
+          "sha1_16": "b7ea48ddaf282978",
+          "task_indices": [
+            2497
+          ],
+          "expected_embedding": "text_embs/b7ea48ddaf282978.pt"
+        },
+        {
+          "task": "Grasp the black sieve on the table with your left hand, lift it vertically and shake it, then put it back on the table and open ",
+          "sha1_16": "f1648dec5f98fd65",
+          "task_indices": [
+            2559
+          ],
+          "expected_embedding": "text_embs/f1648dec5f98fd65.pt"
+        },
+        {
+          "task": "First, put the pure water and tea successor into the basket with your left hand, then add the green tea and Anmushi yogurt with ",
+          "sha1_16": "d602bc67a9a83695",
+          "task_indices": [
+            2619
+          ],
+          "expected_embedding": "text_embs/d602bc67a9a83695.pt"
+        },
+        {
+          "task": "Put the Anmushi yogurt and green tea into the basket with your right hand, and then add pure water, tea successor and cola with ",
+          "sha1_16": "6d2da448824099a8",
+          "task_indices": [
+            2745
+          ],
+          "expected_embedding": "text_embs/6d2da448824099a8.pt"
+        },
+        {
+          "task": "Please put the yogurt, green tea and the successor of tea on the right side of the basket into the basket with your right hand, ",
+          "sha1_16": "efdc777afebef3ea",
+          "task_indices": [
+            2866
+          ],
+          "expected_embedding": "text_embs/efdc777afebef3ea.pt"
+        },
+        {
+          "task": "Put the cola at hand into the basket with your left hand, add the tea starter in with your right hand, and then put the yogurt, ",
+          "sha1_16": "8d0d36987b7d24d8",
+          "task_indices": [
+            3107
+          ],
+          "expected_embedding": "text_embs/8d0d36987b7d24d8.pt"
+        },
+        {
+          "task": "Sort the three cubes by size: place the smallest red cube on top of the medium-sized purple cube, and then stack the two on top ",
+          "sha1_16": "8b7b3cb58be7eb52",
+          "task_indices": [
+            3221
+          ],
+          "expected_embedding": "text_embs/8b7b3cb58be7eb52.pt"
+        },
+        {
+          "task": "Sort the sizes of the three cubes on the blue table: move the smallest red cube to the left, then place the medium-sized purple ",
+          "sha1_16": "dd495597dc805b81",
+          "task_indices": [
+            3269
+          ],
+          "expected_embedding": "text_embs/dd495597dc805b81.pt"
+        },
+        {
+          "task": "Stretch out your left hand to grasp the sieve and lift it up. Shake the sieve vigorously in the air and then put it back on the ",
+          "sha1_16": "038023957cfc470a",
+          "task_indices": [
+            3318
+          ],
+          "expected_embedding": "text_embs/038023957cfc470a.pt"
+        },
+        {
+          "task": "Grasp two yellow tennis balls in succession with your right hand and place them in the transparent cylindrical container in the ",
+          "sha1_16": "d0aca7ded84c4dbf",
+          "task_indices": [
+            3377
+          ],
+          "expected_embedding": "text_embs/d0aca7ded84c4dbf.pt"
+        },
+        {
+          "task": "Stretch out your right hand, grasp the sieve and lift it up. The sieve shook vigorously in the air and then was put back on the ",
+          "sha1_16": "17e248e558844daa",
+          "task_indices": [
+            3383
+          ],
+          "expected_embedding": "text_embs/17e248e558844daa.pt"
+        },
+        {
+          "task": "Put the white plate into the metal tray and stack the beige bowls on top of the white plate. Then pick up the paper cup and put ",
+          "sha1_16": "f7ccfcb69c3638af",
+          "task_indices": [
+            3453
+          ],
+          "expected_embedding": "text_embs/f7ccfcb69c3638af.pt"
+        },
+        {
+          "task": "Move a blue-capped white marker pen from the left side of the table to the center and place it horizontally in front of a green ",
+          "sha1_16": "66d4f2f380f64503",
+          "task_indices": [
+            3489
+          ],
+          "expected_embedding": "text_embs/66d4f2f380f64503.pt"
+        },
+        {
+          "task": "Use your right hand to line up the three cubes on the desktop from left to right in order of size, and group them from small to ",
+          "sha1_16": "c37c0459cbe652f3",
+          "task_indices": [
+            3514
+          ],
+          "expected_embedding": "text_embs/c37c0459cbe652f3.pt"
+        },
+        {
+          "task": "Pick up a yellow tennis ball from the table with your left hand and then put it into a transparent cylindrical container with a ",
+          "sha1_16": "dd05243e9d16814a",
+          "task_indices": [
+            3571
+          ],
+          "expected_embedding": "text_embs/dd05243e9d16814a.pt"
+        },
+        {
+          "task": "Sort the three cubes by size by stacking them one by one: first the largest yellow cube, then the medium-sized purple cube, and ",
+          "sha1_16": "ee14e89c5f3cf6d4",
+          "task_indices": [
+            3760
+          ],
+          "expected_embedding": "text_embs/ee14e89c5f3cf6d4.pt"
+        },
+        {
+          "task": "Place the two yellow tennis balls one by one into the transparent cylindrical container located in the center of the blue table ",
+          "sha1_16": "b1b981bafadd5910",
+          "task_indices": [
+            3872
+          ],
+          "expected_embedding": "text_embs/b1b981bafadd5910.pt"
+        },
+        {
+          "task": "Turn the handkerchief paper and the mobile phone between the good friends over towards the whiteboard pen and place them on the ",
+          "sha1_16": "0a56853ebaab3ce5",
+          "task_indices": [
+            3889
+          ],
+          "expected_embedding": "text_embs/0a56853ebaab3ce5.pt"
+        },
+        {
+          "task": "Open the top drawer of the white storage cabinet and take out specific small items from it to place on the box on the left side ",
+          "sha1_16": "d63e9ac685fa918b",
+          "task_indices": [
+            4051
+          ],
+          "expected_embedding": "text_embs/d63e9ac685fa918b.pt"
+        },
+        {
+          "task": "First, use your right hand to hold the white cup under the rope close to the toothpaste, and then use your left hand to pick up ",
+          "sha1_16": "ca7d60a28b82a1d9",
+          "task_indices": [
+            4085
+          ],
+          "expected_embedding": "text_embs/ca7d60a28b82a1d9.pt"
+        },
+        {
+          "task": "Reach for the wooden stick on the table with your left hand and hold it tightly. Lift the wooden stick vertically and press the ",
+          "sha1_16": "f5f6e01881a8ae4d",
+          "task_indices": [
+            4180
+          ],
+          "expected_embedding": "text_embs/f5f6e01881a8ae4d.pt"
+        },
+        {
+          "task": "Pick up a red ring with your right hand and place it on an orange cylinder, then pick up a yellow ring and place it on a purple ",
+          "sha1_16": "14ddd8802592845e",
+          "task_indices": [
+            4217
+          ],
+          "expected_embedding": "text_embs/14ddd8802592845e.pt"
+        },
+        {
+          "task": "Place the two yellow tennis balls one by one into the transparent cylindrical container on the left side of the table with your ",
+          "sha1_16": "76677ec3d919430b",
+          "task_indices": [
+            4261
+          ],
+          "expected_embedding": "text_embs/76677ec3d919430b.pt"
+        },
+        {
+          "task": "First, pick up the purple toothpaste with your right hand and put it into the white cup under your glasses. Then, use your left ",
+          "sha1_16": "691224aac94dfda5",
+          "task_indices": [
+            4326
+          ],
+          "expected_embedding": "text_embs/691224aac94dfda5.pt"
+        },
+        {
+          "task": "Place the two yellow tennis balls one by one into the transparent plastic cup located in the center of the blue table with your ",
+          "sha1_16": "13bb36a43bbbeca1",
+          "task_indices": [
+            4387
+          ],
+          "expected_embedding": "text_embs/13bb36a43bbbeca1.pt"
+        },
+        {
+          "task": "Pick up the white paper cup placed on the white and yellow exercise book with your right hand and put it on the white paper cup ",
+          "sha1_16": "10c0e743c6b73271",
+          "task_indices": [
+            4398
+          ],
+          "expected_embedding": "text_embs/10c0e743c6b73271.pt"
+        },
+        {
+          "task": "Place the two yellow tennis balls in sequence with the left hand into a transparent cylindrical container located in the center ",
+          "sha1_16": "581dab5e00c162a1",
+          "task_indices": [
+            4507
+          ],
+          "expected_embedding": "text_embs/581dab5e00c162a1.pt"
+        },
+        {
+          "task": "Grab the white paper cup from the red packaging on the left with your left hand and place it on the cup in the middle. With the ",
+          "sha1_16": "e58a3d6b0edf3a03",
+          "task_indices": [
+            4575
+          ],
+          "expected_embedding": "text_embs/e58a3d6b0edf3a03.pt"
+        },
+        {
+          "task": "Grasp the blue T-shaped handle on the right side of the green and blue alternating cylindrical device with your right hand, and ",
+          "sha1_16": "232cb3a065fd2d06",
+          "task_indices": [
+            4625
+          ],
+          "expected_embedding": "text_embs/232cb3a065fd2d06.pt"
+        },
+        {
+          "task": "With the right hand, insert the two coins one by one into the opening of the wooden piggy bank located on the right side of the ",
+          "sha1_16": "9cd2ebda3ec063b9",
+          "task_indices": [
+            4686
+          ],
+          "expected_embedding": "text_embs/9cd2ebda3ec063b9.pt"
+        },
+        {
+          "task": "Grab the white paper cup from the lower right corner and the center of the bottom of the blue table with your right hand. Place ",
+          "sha1_16": "64f6eadc29e12fa4",
+          "task_indices": [
+            4700
+          ],
+          "expected_embedding": "text_embs/64f6eadc29e12fa4.pt"
+        },
+        {
+          "task": "First, use the index finger and thumb of your right hand to pick up the toothbrush placed on the purple box and put it into the ",
+          "sha1_16": "f7ec96c2a2b14bed",
+          "task_indices": [
+            4754
+          ],
+          "expected_embedding": "text_embs/f7ec96c2a2b14bed.pt"
+        },
+        {
+          "task": "First, pick up the toothbrush at the bottom of the bowl with your left hand and put it into the white cup. Then, use your right ",
+          "sha1_16": "2c9040030a287149",
+          "task_indices": [
+            4755
+          ],
+          "expected_embedding": "text_embs/2c9040030a287149.pt"
+        },
+        {
+          "task": "Move the white paper cups from different positions on the blue table to the upper-middle paper cup close to the pink sponge and ",
+          "sha1_16": "e0d7665fb9c7800f",
+          "task_indices": [
+            4765
+          ],
+          "expected_embedding": "text_embs/e0d7665fb9c7800f.pt"
+        },
+        {
+          "task": "Pick up the white paper cup in the upper right corner with your right hand and place it on the cup in the center at the bottom. ",
+          "sha1_16": "d4198c869eecf6da",
+          "task_indices": [
+            4828
+          ],
+          "expected_embedding": "text_embs/d4198c869eecf6da.pt"
+        },
+        {
+          "task": "Pick up the white paper cup at the lower left corner with your left hand. Place it on the cup in the center of the bottom. Then ",
+          "sha1_16": "fd8aa566067f2c2f",
+          "task_indices": [
+            4895
+          ],
+          "expected_embedding": "text_embs/fd8aa566067f2c2f.pt"
+        },
+        {
+          "task": "First, use your right hand to pick up the toothbrush on the left side of the white rectangular object and put it into the white ",
+          "sha1_16": "84a74c997fe14503",
+          "task_indices": [
+            4947
+          ],
+          "expected_embedding": "text_embs/84a74c997fe14503.pt"
+        },
+        {
+          "task": "First, use your right hand to pick up the toothbrush under the glasses case and put it into the white cup below the bowl. Then, ",
+          "sha1_16": "c524c90ef1e9354f",
+          "task_indices": [
+            4948
+          ],
+          "expected_embedding": "text_embs/c524c90ef1e9354f.pt"
+        },
+        {
+          "task": "On the blue table, adjust the position in front of the workbench with both hands in coordination, control the Angle between the ",
+          "sha1_16": "80811a2f8a20ce85",
+          "task_indices": [
+            4962
+          ],
+          "expected_embedding": "text_embs/80811a2f8a20ce85.pt"
+        },
+        {
+          "task": "Pick up a tennis ball from the table with your right hand, put it into the tennis court bucket, and then repeat this action for ",
+          "sha1_16": "6018809f4bfe46b5",
+          "task_indices": [
+            5009
+          ],
+          "expected_embedding": "text_embs/6018809f4bfe46b5.pt"
+        },
+        {
+          "task": "First, use your right hand to place the white cup to the right of the toothbrush and the purple toothpaste. Then, use your left ",
+          "sha1_16": "60fd019c7442521e",
+          "task_indices": [
+            5010
+          ],
+          "expected_embedding": "text_embs/60fd019c7442521e.pt"
+        },
+        {
+          "task": "Move the white paper cup from the right side of the table to the one in the center at the bottom with your right hand. Grab the ",
+          "sha1_16": "547af319e33a9d0d",
+          "task_indices": [
+            5082
+          ],
+          "expected_embedding": "text_embs/547af319e33a9d0d.pt"
+        },
+        {
+          "task": "Grasp the black sieve on the table with your left hand, lift it up, shake it vigorously, then put it back on the table and open ",
+          "sha1_16": "a2941e43c799b3f9",
+          "task_indices": [
+            5143
+          ],
+          "expected_embedding": "text_embs/a2941e43c799b3f9.pt"
+        },
+        {
+          "task": "Two sticks were lifted by both hands, crossed in the air above the table, and then returned to their original positions without ",
+          "sha1_16": "86b56435d2de8c30",
+          "task_indices": [
+            5154
+          ],
+          "expected_embedding": "text_embs/86b56435d2de8c30.pt"
+        },
+        {
+          "task": "Remove a white bowl, spread out and smooth a grey grid placemat on the table, and then place the bowl back in the center of the ",
+          "sha1_16": "8b7f86fb5197d7e3",
+          "task_indices": [
+            5226
+          ],
+          "expected_embedding": "text_embs/8b7f86fb5197d7e3.pt"
+        },
+        {
+          "task": "Hold the blue end of the large syringe with your left hand and the handle end with your right hand. Pull the two ends along the ",
+          "sha1_16": "be7a0fcb0e6e4316",
+          "task_indices": [
+            5256
+          ],
+          "expected_embedding": "text_embs/be7a0fcb0e6e4316.pt"
+        },
+        {
+          "task": "First, use your left hand to hold the white cup in the middle of the table, close to above the toothpaste. Then, use your right ",
+          "sha1_16": "4ac938f8dad53805",
+          "task_indices": [
+            5263
+          ],
+          "expected_embedding": "text_embs/4ac938f8dad53805.pt"
+        },
+        {
+          "task": "Reach out your left hand to get the black sieve placed on the table. Grab the sieve. Lift the sieve upwards. Shake the sieve to ",
+          "sha1_16": "5d499801ad1d7cef",
+          "task_indices": [
+            5332
+          ],
+          "expected_embedding": "text_embs/5d499801ad1d7cef.pt"
+        },
+        {
+          "task": "Unfold the bamboo strips on the outside of the folding paper fan symmetrically until it is fully unfolded, and then put it back ",
+          "sha1_16": "2946f8b0adc899f7",
+          "task_indices": [
+            5445
+          ],
+          "expected_embedding": "text_embs/2946f8b0adc899f7.pt"
+        },
+        {
+          "task": "Stretch out your left hand towards the black sieve on the table. Grasp both sides of the sieve. Lift the sieve into the air and ",
+          "sha1_16": "a5a2de8cbe02188a",
+          "task_indices": [
+            5471
+          ],
+          "expected_embedding": "text_embs/a5a2de8cbe02188a.pt"
+        },
+        {
+          "task": "Grasp the white paper cup on the left with your left hand and place it above the middle cup. Pick up the white paper cup on the ",
+          "sha1_16": "714e4f7e7c13c8ae",
+          "task_indices": [
+            5477
+          ],
+          "expected_embedding": "text_embs/714e4f7e7c13c8ae.pt"
+        },
+        {
+          "task": "Reach out your left hand to take the black sieve on the left side of the table, grasp it, lift it up and shake it, put it down, ",
+          "sha1_16": "fafba0d298a8b98f",
+          "task_indices": [
+            5593
+          ],
+          "expected_embedding": "text_embs/fafba0d298a8b98f.pt"
+        },
+        {
+          "task": "With his left hand, he picked up the top one from the three white paper cups arranged vertically on the blue table. Put it over ",
+          "sha1_16": "9cbb2f9e8ba20cb7",
+          "task_indices": [
+            5673
+          ],
+          "expected_embedding": "text_embs/9cbb2f9e8ba20cb7.pt"
+        },
+        {
+          "task": "In front of the black pen holder, pick up the broom with your right hand and the dustpan with your left hand to sweep the three ",
+          "sha1_16": "b6b6761caa4ba598",
+          "task_indices": [
+            5678
+          ],
+          "expected_embedding": "text_embs/b6b6761caa4ba598.pt"
+        },
+        {
+          "task": "First, pick up the toothpaste under the white lunch box with your left hand, then pick up the toothpaste box under the beverage ",
+          "sha1_16": "a5a7bc380ca5f15c",
+          "task_indices": [
+            5786
+          ],
+          "expected_embedding": "text_embs/a5a7bc380ca5f15c.pt"
+        },
+        {
+          "task": "Reach out and take the toothpaste tube on the left and the paper box on the right. Grab these two objects, slide the toothpaste ",
+          "sha1_16": "f941fa97aa80729b",
+          "task_indices": [
+            5787
+          ],
+          "expected_embedding": "text_embs/f941fa97aa80729b.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup on the far left. Hold the cup, pick it up and put it into the white cup in ",
+          "sha1_16": "1c885d89f1287d47",
+          "task_indices": [
+            5793
+          ],
+          "expected_embedding": "text_embs/1c885d89f1287d47.pt"
+        },
+        {
+          "task": "Grasp the right side of the water gun under the towel with your right hand and the left side with your left hand, then pull the ",
+          "sha1_16": "8512ce052445bcc6",
+          "task_indices": [
+            5901
+          ],
+          "expected_embedding": "text_embs/8512ce052445bcc6.pt"
+        },
+        {
+          "task": "Hold the black bowl-shaped sieve tightly with your left hand, lift it vertically off the table, shake it vigorously in the air, ",
+          "sha1_16": "4df2fbe6b5ffd078",
+          "task_indices": [
+            5974
+          ],
+          "expected_embedding": "text_embs/4df2fbe6b5ffd078.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the purple and white toothpaste tube on the left. Hold the toothpaste tube firmly. Stretch out ",
+          "sha1_16": "60e6991703c1a172",
+          "task_indices": [
+            6031
+          ],
+          "expected_embedding": "text_embs/60e6991703c1a172.pt"
+        },
+        {
+          "task": "Hold the blue end of the large syringe with your right hand and the handle end with your left hand. Pull the two ends along the ",
+          "sha1_16": "80fd41e86a62dc54",
+          "task_indices": [
+            6087
+          ],
+          "expected_embedding": "text_embs/80fd41e86a62dc54.pt"
+        },
+        {
+          "task": "Grasp the right side of the water gun below the blue building block with your right hand and the left side with your left hand. ",
+          "sha1_16": "3c0c79bbf04bec32",
+          "task_indices": [
+            6197
+          ],
+          "expected_embedding": "text_embs/3c0c79bbf04bec32.pt"
+        },
+        {
+          "task": "Grasp the black sieve on the right with your right hand, lift it up, shake the small white dice inside, and then put it back on ",
+          "sha1_16": "460672a91a560f2b",
+          "task_indices": [
+            6205
+          ],
+          "expected_embedding": "text_embs/460672a91a560f2b.pt"
+        },
+        {
+          "task": "Grasp the black sieve on the table with your left hand, lift it and shake it, then put the sieve back on the table and open the ",
+          "sha1_16": "6cc4565e12cfb49e",
+          "task_indices": [
+            6206
+          ],
+          "expected_embedding": "text_embs/6cc4565e12cfb49e.pt"
+        },
+        {
+          "task": "Take the orange toy chicken from the table, squeeze it, and then place it on a metal tray. Return to the original position with ",
+          "sha1_16": "d5b9dd409fa14ab6",
+          "task_indices": [
+            6208
+          ],
+          "expected_embedding": "text_embs/d5b9dd409fa14ab6.pt"
+        },
+        {
+          "task": "In front of the clutter, pick up the broom with your right hand and the dustpan with your left hand, and slowly sweep the three ",
+          "sha1_16": "f7a07ff8c7b0d746",
+          "task_indices": [
+            6213
+          ],
+          "expected_embedding": "text_embs/f7a07ff8c7b0d746.pt"
+        },
+        {
+          "task": "Take the orange toy chicken on the table and pinch it a few times. Then put it on the metal tray and return your hands to their ",
+          "sha1_16": "f4e5420e1411acbb",
+          "task_indices": [
+            6324
+          ],
+          "expected_embedding": "text_embs/f4e5420e1411acbb.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup in the center of the table. Grab the cup at the lower left corner and move ",
+          "sha1_16": "92d2bd103bd43ddb",
+          "task_indices": [
+            6325
+          ],
+          "expected_embedding": "text_embs/92d2bd103bd43ddb.pt"
+        },
+        {
+          "task": "Stretch out your left hand and grasp the white paper cup on the left side of the table. Pick it up and place it directly on the ",
+          "sha1_16": "7d5c284bccf22a93",
+          "task_indices": [
+            6501
+          ],
+          "expected_embedding": "text_embs/7d5c284bccf22a93.pt"
+        },
+        {
+          "task": "Pick up a tube of toothpaste and its packaging box, place the toothpaste tube into the box, and put the assembled items back on ",
+          "sha1_16": "daa580c611db244d",
+          "task_indices": [
+            6558
+          ],
+          "expected_embedding": "text_embs/daa580c611db244d.pt"
+        },
+        {
+          "task": "Grasp the black sieve placed on the table with your left hand and shake it vigorously. Then put the sieve back on the table and ",
+          "sha1_16": "6aacc9ec4c9e08b9",
+          "task_indices": [
+            6561
+          ],
+          "expected_embedding": "text_embs/6aacc9ec4c9e08b9.pt"
+        },
+        {
+          "task": "Grasp the black sieve on the right side of the table with your right hand, lift it and shake it, then put the sieve back on the ",
+          "sha1_16": "d99042e5e1da3848",
+          "task_indices": [
+            6562
+          ],
+          "expected_embedding": "text_embs/d99042e5e1da3848.pt"
+        },
+        {
+          "task": "Hold the orange toy chicken on the table and pinch it a few times. Then put it in the metal tray and return your hands to their ",
+          "sha1_16": "e852a0cade151831",
+          "task_indices": [
+            6564
+          ],
+          "expected_embedding": "text_embs/e852a0cade151831.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup at the lower left corner. Hold the cup and move it towards the white paper ",
+          "sha1_16": "d935d7d762aaaca2",
+          "task_indices": [
+            6568
+          ],
+          "expected_embedding": "text_embs/d935d7d762aaaca2.pt"
+        },
+        {
+          "task": "Pick up the black sieve on the table with your left hand, shake the white dice inside, put the sieve back on the table and open ",
+          "sha1_16": "e60361858b43ac76",
+          "task_indices": [
+            6678
+          ],
+          "expected_embedding": "text_embs/e60361858b43ac76.pt"
+        },
+        {
+          "task": "Grasp the black sieve with your right hand, quickly shake it above the table, then put the sieve back on the table and open its ",
+          "sha1_16": "1153a0c7833f150d",
+          "task_indices": [
+            6679
+          ],
+          "expected_embedding": "text_embs/1153a0c7833f150d.pt"
+        },
+        {
+          "task": "Take the white paper cup in the middle and upper part with your left hand and put it into the cup in the middle and lower part. ",
+          "sha1_16": "fb76cb1b037b7ffa",
+          "task_indices": [
+            6736
+          ],
+          "expected_embedding": "text_embs/fb76cb1b037b7ffa.pt"
+        },
+        {
+          "task": "Reach your left hand towards the black sieve on the left side of the table, lift and shake the sieve, and finally put the sieve ",
+          "sha1_16": "f8a13199f1f61672",
+          "task_indices": [
+            6789
+          ],
+          "expected_embedding": "text_embs/f8a13199f1f61672.pt"
+        },
+        {
+          "task": "Stretch out your right hand and move it towards the white paper cup on the right side of the table. Hold the paper cup and lift ",
+          "sha1_16": "dbcf1ed31de0f771",
+          "task_indices": [
+            6796
+          ],
+          "expected_embedding": "text_embs/dbcf1ed31de0f771.pt"
+        },
+        {
+          "task": "Extend your right hand towards the black sieve on the right, lift it off the table and shake it, then put the sieve back on the ",
+          "sha1_16": "c2ecbd98199de1a6",
+          "task_indices": [
+            6856
+          ],
+          "expected_embedding": "text_embs/c2ecbd98199de1a6.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup on the far left. Grab the paper cup and lift it off the surface. Place the ",
+          "sha1_16": "66da726d855ac7ed",
+          "task_indices": [
+            6975
+          ],
+          "expected_embedding": "text_embs/66da726d855ac7ed.pt"
+        },
+        {
+          "task": "Gently swing the broom along the workbench surface to slowly gather and fold the three scattered paper balls, and then steadily ",
+          "sha1_16": "88a12c983b5274a3",
+          "task_indices": [
+            7141
+          ],
+          "expected_embedding": "text_embs/88a12c983b5274a3.pt"
+        },
+        {
+          "task": "Remove the black hat from the human model’s head and place it on the table.",
+          "sha1_16": "27817cf80188fb45",
+          "task_indices": [
+            7144
+          ],
+          "expected_embedding": "text_embs/27817cf80188fb45.pt"
+        },
+        {
+          "task": "Hold the green cube marked \"2\" on the top side tightly. The adjacent visible sides are marked \"1\" and \"6\", located in the upper ",
+          "sha1_16": "c9e815005f77c84f",
+          "task_indices": [
+            7354
+          ],
+          "expected_embedding": "text_embs/c9e815005f77c84f.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup on the far left. Grab the cup and lift it towards the center of the table. ",
+          "sha1_16": "074aa845e1dafc4f",
+          "task_indices": [
+            7359
+          ],
+          "expected_embedding": "text_embs/074aa845e1dafc4f.pt"
+        },
+        {
+          "task": "Stack five round chess pieces with Chinese characters in a vertical stack with your right hand and place them on the right side ",
+          "sha1_16": "b8150a83dd5e42fc",
+          "task_indices": [
+            7481
+          ],
+          "expected_embedding": "text_embs/b8150a83dd5e42fc.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup on the far left. Hold the cup and pick it up from the table. Align the cup ",
+          "sha1_16": "579d7988adc65287",
+          "task_indices": [
+            7588
+          ],
+          "expected_embedding": "text_embs/579d7988adc65287.pt"
+        },
+        {
+          "task": "Stretch out your left hand and move it towards the white paper cup on the far left. Grab and lift the paper cup. Move the paper ",
+          "sha1_16": "3eb26a5513f67fd1",
+          "task_indices": [
+            7628
+          ],
+          "expected_embedding": "text_embs/3eb26a5513f67fd1.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white cup near the blue box. Hold the cup tightly and lift it towards the center. Put this ",
+          "sha1_16": "5244a098619dc5b9",
+          "task_indices": [
+            7735
+          ],
+          "expected_embedding": "text_embs/5244a098619dc5b9.pt"
+        },
+        {
+          "task": "Gently sweep back and forth along the countertop, slowly gather the three scattered paper balls into one place, gently push and ",
+          "sha1_16": "bcbc7cb3cd50c941",
+          "task_indices": [
+            7741
+          ],
+          "expected_embedding": "text_embs/bcbc7cb3cd50c941.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup in the center of the yellow checkered table. Hold the cup tightly and pick ",
+          "sha1_16": "e320042dfcf2b084",
+          "task_indices": [
+            7797
+          ],
+          "expected_embedding": "text_embs/e320042dfcf2b084.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup on the left. Pick it up and put it into the middle cup. Withdraw your left ",
+          "sha1_16": "1ff2be3164e5527a",
+          "task_indices": [
+            7851
+          ],
+          "expected_embedding": "text_embs/1ff2be3164e5527a.pt"
+        },
+        {
+          "task": "Hold the black sieve in your right hand, shake it on the surface of the table, put the sieve back on the table and open the lid ",
+          "sha1_16": "431ba0a1b0e24aae",
+          "task_indices": [
+            8106
+          ],
+          "expected_embedding": "text_embs/431ba0a1b0e24aae.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the white paper cup on the far left. Hold the cup tightly and lift it to the upper-middle area ",
+          "sha1_16": "2f25f36d16a15346",
+          "task_indices": [
+            8110
+          ],
+          "expected_embedding": "text_embs/2f25f36d16a15346.pt"
+        },
+        {
+          "task": "There are three stacked playing cards. Use your left hand to move the first card to the upper left, move the second card to the ",
+          "sha1_16": "e57da1001906c17a",
+          "task_indices": [
+            8334
+          ],
+          "expected_embedding": "text_embs/e57da1001906c17a.pt"
+        },
+        {
+          "task": "Reach out your right hand to take the light blue bookmark located on the right side of the open white spiral notebook. Hold the ",
+          "sha1_16": "8e533ea4d3718707",
+          "task_indices": [
+            8445
+          ],
+          "expected_embedding": "text_embs/8e533ea4d3718707.pt"
+        },
+        {
+          "task": "Pick up the white paper cups from the right and left front of the yellow checkered table and stack them on top of the third cup ",
+          "sha1_16": "09549c2db3b75a73",
+          "task_indices": [
+            8482
+          ],
+          "expected_embedding": "text_embs/09549c2db3b75a73.pt"
+        },
+        {
+          "task": "Use your left hand to stack five circular wooden pieces printed with symbols into vertical columns and place them on a textured ",
+          "sha1_16": "27e34fac515a86d6",
+          "task_indices": [
+            8577
+          ],
+          "expected_embedding": "text_embs/27e34fac515a86d6.pt"
+        },
+        {
+          "task": "Grab the black sieve on the pink table with your left hand, pick it up, shake it, then put the sieve back on the table and open ",
+          "sha1_16": "b1521bfb8e5861a7",
+          "task_indices": [
+            8633
+          ],
+          "expected_embedding": "text_embs/b1521bfb8e5861a7.pt"
+        },
+        {
+          "task": "Grasp the black sieve on the pink surface with your right hand, shake it vigorously to sift the contents, put the sieve back on ",
+          "sha1_16": "86b83989f737804d",
+          "task_indices": [
+            8688
+          ],
+          "expected_embedding": "text_embs/86b83989f737804d.pt"
+        },
+        {
+          "task": "Grasp the black sieve on the right side of the table with your right hand, lift it up, shake it vigorously, then put it back on ",
+          "sha1_16": "b959f52c49cc39ab",
+          "task_indices": [
+            8814
+          ],
+          "expected_embedding": "text_embs/b959f52c49cc39ab.pt"
+        },
+        {
+          "task": "Move a Chinese chess piece from its starting position at the upper left of the lower half of the board to an adjacent square on ",
+          "sha1_16": "2f5cfd0b46860c20",
+          "task_indices": [
+            9066
+          ],
+          "expected_embedding": "text_embs/2f5cfd0b46860c20.pt"
+        },
+        {
+          "task": "Uniform and reciprocating transfer and aggregation are carried out to gather the scattered paper balls and safely place them in ",
+          "sha1_16": "f0a1c295d002376f",
+          "task_indices": [
+            9310
+          ],
+          "expected_embedding": "text_embs/f0a1c295d002376f.pt"
+        },
+        {
+          "task": "Move several pink-patterned playing cards in the center of the blue table with your right hand and stack them one by one at the ",
+          "sha1_16": "7e7671e87089325c",
+          "task_indices": [
+            9615
+          ],
+          "expected_embedding": "text_embs/7e7671e87089325c.pt"
+        },
+        {
+          "task": "Use your left hand to move the chess pieces from the lower right corner of the board to the intersection point in the middle of ",
+          "sha1_16": "e38ea62480cc44e1",
+          "task_indices": [
+            9631
+          ],
+          "expected_embedding": "text_embs/e38ea62480cc44e1.pt"
+        },
+        {
+          "task": "Open the cap of a transparent plastic bottle, hold the bottle in place with your left hand, and rotate the cap counterclockwise ",
+          "sha1_16": "7c933c3e67981585",
+          "task_indices": [
+            9674
+          ],
+          "expected_embedding": "text_embs/7c933c3e67981585.pt"
+        },
+        {
+          "task": "Pick up the toothpaste tube and its packaging box, place the toothpaste tube into the box, and put the packed items back on the ",
+          "sha1_16": "17fd94fc3e63ab75",
+          "task_indices": [
+            9866
+          ],
+          "expected_embedding": "text_embs/17fd94fc3e63ab75.pt"
+        },
+        {
+          "task": "Open the upper drawer of the white storage box with your left hand, grab the blue square on the table, put it in the drawer and ",
+          "sha1_16": "5de9d5f8794147d8",
+          "task_indices": [
+            9881
+          ],
+          "expected_embedding": "text_embs/5de9d5f8794147d8.pt"
+        },
+        {
+          "task": "Arrange the magnets on the table into a rectangle with the red ones on top and the yellow ones at the bottom, and stick it onto ",
+          "sha1_16": "b9efcb1733f528f6",
+          "task_indices": [
+            10015
+          ],
+          "expected_embedding": "text_embs/b9efcb1733f528f6.pt"
+        },
+        {
+          "task": "Arrange the magnets on the table in a trapezoid shape with the yellow on top and the red on the bottom, and stick them onto the ",
+          "sha1_16": "5cea1e6ea698614b",
+          "task_indices": [
+            10016
+          ],
+          "expected_embedding": "text_embs/5cea1e6ea698614b.pt"
+        },
+        {
+          "task": "Reach out to the green and yellow container with your left hand from the left side, firmly grasp it around the main body of the ",
+          "sha1_16": "853438450fd74758",
+          "task_indices": [
+            10235
+          ],
+          "expected_embedding": "text_embs/853438450fd74758.pt"
+        },
+        {
+          "task": "Scoop the white granular substance from the metal bowl with a spoon and pour it into the white cup, then place the spoon on the ",
+          "sha1_16": "a339fe81a6cb34be",
+          "task_indices": [
+            10278
+          ],
+          "expected_embedding": "text_embs/a339fe81a6cb34be.pt"
+        },
+        {
+          "task": "Pick up a tube of toothpaste and its matching box, place the toothpaste tube into the box, and put the packaged product back on ",
+          "sha1_16": "faf6dfb2f0f97135",
+          "task_indices": [
+            10327
+          ],
+          "expected_embedding": "text_embs/faf6dfb2f0f97135.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece at (0,4) and moves it ",
+          "sha1_16": "509e655b7ad3a86c",
+          "task_indices": [
+            10578
+          ],
+          "expected_embedding": "text_embs/509e655b7ad3a86c.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece at (6,4) and moves it ",
+          "sha1_16": "fc87a77d4af2d329",
+          "task_indices": [
+            10579
+          ],
+          "expected_embedding": "text_embs/fc87a77d4af2d329.pt"
+        },
+        {
+          "task": "Pick up the toothpaste tube and its matching packaging box, place the toothpaste tube into the box, and then put the packed box ",
+          "sha1_16": "fed6283f97142434",
+          "task_indices": [
+            10687
+          ],
+          "expected_embedding": "text_embs/fed6283f97142434.pt"
+        },
+        {
+          "task": "Move the pink-patterned playing cards on the blue desktop. Slide the playing cards away from the stack in the middle right with ",
+          "sha1_16": "8ce1ab81fe0e1c94",
+          "task_indices": [
+            10754
+          ],
+          "expected_embedding": "text_embs/8ce1ab81fe0e1c94.pt"
+        },
+        {
+          "task": "The right hand is washing several pink-patterned playing cards on the right side of the blue table, and then stacking the cards ",
+          "sha1_16": "63cb756c71a9c44d",
+          "task_indices": [
+            10847
+          ],
+          "expected_embedding": "text_embs/63cb756c71a9c44d.pt"
+        },
+        {
+          "task": "Open the middle drawer of the white storage box with your left hand, grab the black item on the table, put it in the drawer and ",
+          "sha1_16": "e41b26bb14fd7974",
+          "task_indices": [
+            10937
+          ],
+          "expected_embedding": "text_embs/e41b26bb14fd7974.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece (1,2) and moves it to ",
+          "sha1_16": "affe964ab6685f21",
+          "task_indices": [
+            11010
+          ],
+          "expected_embedding": "text_embs/affe964ab6685f21.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece at (6,2) and moves it ",
+          "sha1_16": "822680d641670eb3",
+          "task_indices": [
+            11057
+          ],
+          "expected_embedding": "text_embs/822680d641670eb3.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece (6,9) and moves it to ",
+          "sha1_16": "ab1c8a6999035862",
+          "task_indices": [
+            11104
+          ],
+          "expected_embedding": "text_embs/ab1c8a6999035862.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece (3,9) and moves it to ",
+          "sha1_16": "30fea6d2e1a70f7c",
+          "task_indices": [
+            11250
+          ],
+          "expected_embedding": "text_embs/30fea6d2e1a70f7c.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece (1,9) and moves it to ",
+          "sha1_16": "7e15dab64ed1c429",
+          "task_indices": [
+            11298
+          ],
+          "expected_embedding": "text_embs/7e15dab64ed1c429.pt"
+        },
+        {
+          "task": "Grasp the transparent rectangular bento box in the center of the table with your left hand, remove the blue lid with your right ",
+          "sha1_16": "34abffae8c65299b",
+          "task_indices": [
+            11302
+          ],
+          "expected_embedding": "text_embs/34abffae8c65299b.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece (8,3) and moves it to ",
+          "sha1_16": "54a3163dc513048d",
+          "task_indices": [
+            11347
+          ],
+          "expected_embedding": "text_embs/54a3163dc513048d.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (7,2) and moves it to the ",
+          "sha1_16": "dc63b99f51769e84",
+          "task_indices": [
+            11446
+          ],
+          "expected_embedding": "text_embs/dc63b99f51769e84.pt"
+        },
+        {
+          "task": "Reach out your left hand and pick up the transparent plastic bottle on the left side of the table. Pick up the bottle, shake it ",
+          "sha1_16": "69d59e6249d26214",
+          "task_indices": [
+            11463
+          ],
+          "expected_embedding": "text_embs/69d59e6249d26214.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece at (3,2) and moves it ",
+          "sha1_16": "5f61ede635f4dd10",
+          "task_indices": [
+            11497
+          ],
+          "expected_embedding": "text_embs/5f61ede635f4dd10.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"car\" piece at (7,0) and moves it to ",
+          "sha1_16": "04375c33d4954d07",
+          "task_indices": [
+            11500
+          ],
+          "expected_embedding": "text_embs/04375c33d4954d07.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (8,1) and moves it to the ",
+          "sha1_16": "237feab19d8040cc",
+          "task_indices": [
+            11556
+          ],
+          "expected_embedding": "text_embs/237feab19d8040cc.pt"
+        },
+        {
+          "task": "Fix the lid with your left hand and open the lunch box with your right hand. Remove the blue lid from the transparent container ",
+          "sha1_16": "f93a5dac30088940",
+          "task_indices": [
+            11560
+          ],
+          "expected_embedding": "text_embs/f93a5dac30088940.pt"
+        },
+        {
+          "task": "Pick up the toothpaste under the grape with your left hand, open the cap of the toothpaste with your right hand and put it back ",
+          "sha1_16": "815eff5819e0e56a",
+          "task_indices": [
+            11561
+          ],
+          "expected_embedding": "text_embs/815eff5819e0e56a.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"scholar\" piece at (3,0) and moves it ",
+          "sha1_16": "ae7578593fcd9de1",
+          "task_indices": [
+            11604
+          ],
+          "expected_embedding": "text_embs/ae7578593fcd9de1.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece at (4,6) and moves it ",
+          "sha1_16": "dc86a1277351f546",
+          "task_indices": [
+            11605
+          ],
+          "expected_embedding": "text_embs/dc86a1277351f546.pt"
+        },
+        {
+          "task": "Pick up the transparent plastic bottle from the table with your left hand, shake it vigorously, and then place it on the silver ",
+          "sha1_16": "7f62dce7f0c15616",
+          "task_indices": [
+            11626
+          ],
+          "expected_embedding": "text_embs/7f62dce7f0c15616.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"car\" piece at (0,0) and moves it to ",
+          "sha1_16": "219c337270ef65ec",
+          "task_indices": [
+            11657
+          ],
+          "expected_embedding": "text_embs/219c337270ef65ec.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"car\" piece at (1,0) and moves it to ",
+          "sha1_16": "185df095634592c1",
+          "task_indices": [
+            11715
+          ],
+          "expected_embedding": "text_embs/185df095634592c1.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (1,5) and moves it to the ",
+          "sha1_16": "178a89742da25541",
+          "task_indices": [
+            11757
+          ],
+          "expected_embedding": "text_embs/178a89742da25541.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece (1,3) and moves it to ",
+          "sha1_16": "ebb0324f70e662b9",
+          "task_indices": [
+            11807
+          ],
+          "expected_embedding": "text_embs/ebb0324f70e662b9.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (4,7) and moves it to the ",
+          "sha1_16": "8ecbdbf03def28d2",
+          "task_indices": [
+            11808
+          ],
+          "expected_embedding": "text_embs/8ecbdbf03def28d2.pt"
+        },
+        {
+          "task": "Hold both sides of the blue lid with your left hand and lift it vertically upwards with your right hand to separate it from the ",
+          "sha1_16": "c9a746cd5606ad52",
+          "task_indices": [
+            11812
+          ],
+          "expected_embedding": "text_embs/c9a746cd5606ad52.pt"
+        },
+        {
+          "task": "Open the lower drawer of the white storage box with your left hand, grab the yellow item on the table, put it in the drawer and ",
+          "sha1_16": "4f33e7b88a62489b",
+          "task_indices": [
+            11842
+          ],
+          "expected_embedding": "text_embs/4f33e7b88a62489b.pt"
+        },
+        {
+          "task": "Pick up the pink-patterned playing card on the left side of the blue table with your left hand and spread it out. Rearrange the ",
+          "sha1_16": "2a6f0a359d49c7e6",
+          "task_indices": [
+            11845
+          ],
+          "expected_embedding": "text_embs/2a6f0a359d49c7e6.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (8,0) and moves it to the ",
+          "sha1_16": "8f8ad497f3961aa1",
+          "task_indices": [
+            11919
+          ],
+          "expected_embedding": "text_embs/8f8ad497f3961aa1.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece at (7,2) and moves it ",
+          "sha1_16": "a94400577e9d48c0",
+          "task_indices": [
+            11921
+          ],
+          "expected_embedding": "text_embs/a94400577e9d48c0.pt"
+        },
+        {
+          "task": "Take the three pink-patterned cards on the left side of the blue table with your left hand, reposition them, and then stack the ",
+          "sha1_16": "72afdbe6cd8918cd",
+          "task_indices": [
+            11961
+          ],
+          "expected_embedding": "text_embs/72afdbe6cd8918cd.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"car\" piece at (1,3) and moves it to ",
+          "sha1_16": "2de4e4f4c445d086",
+          "task_indices": [
+            11979
+          ],
+          "expected_embedding": "text_embs/2de4e4f4c445d086.pt"
+        },
+        {
+          "task": "Move a white bowl to one side, spread out a rectangular placemat in the middle and smooth it out, then put the bowl back on the ",
+          "sha1_16": "f806f2f86995f83c",
+          "task_indices": [
+            12007
+          ],
+          "expected_embedding": "text_embs/f806f2f86995f83c.pt"
+        },
+        {
+          "task": "Hold the pink-patterned playing card at the lower right corner of the blue table with your right hand. Spread the playing cards ",
+          "sha1_16": "e3170e57230afd5a",
+          "task_indices": [
+            12008
+          ],
+          "expected_embedding": "text_embs/e3170e57230afd5a.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"car\" piece at (6,3) and moves it to ",
+          "sha1_16": "479a18732373cf7b",
+          "task_indices": [
+            12030
+          ],
+          "expected_embedding": "text_embs/479a18732373cf7b.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"car\" piece at (8,0) and moves it to ",
+          "sha1_16": "73358130c653a848",
+          "task_indices": [
+            12031
+          ],
+          "expected_embedding": "text_embs/73358130c653a848.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (7,1) and moves it to the ",
+          "sha1_16": "e29d234474006594",
+          "task_indices": [
+            12032
+          ],
+          "expected_embedding": "text_embs/e29d234474006594.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece (2,5) and moves it to ",
+          "sha1_16": "77b630cfc49a5eba",
+          "task_indices": [
+            12033
+          ],
+          "expected_embedding": "text_embs/77b630cfc49a5eba.pt"
+        },
+        {
+          "task": "Pick up the pink-patterned card in the middle of the bottom of the blue table with your left hand. Spread the playing cards out ",
+          "sha1_16": "3c19e5b8023b9554",
+          "task_indices": [
+            12070
+          ],
+          "expected_embedding": "text_embs/3c19e5b8023b9554.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece (2,3) and moves it to ",
+          "sha1_16": "1acf3b6d100fb688",
+          "task_indices": [
+            12087
+          ],
+          "expected_embedding": "text_embs/1acf3b6d100fb688.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece (8,4) and moves it to ",
+          "sha1_16": "36c1551265ffed09",
+          "task_indices": [
+            12207
+          ],
+          "expected_embedding": "text_embs/36c1551265ffed09.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (1,1) and moves it to the ",
+          "sha1_16": "e7e57536ad9f1152",
+          "task_indices": [
+            12258
+          ],
+          "expected_embedding": "text_embs/e7e57536ad9f1152.pt"
+        },
+        {
+          "task": "Take the small white seal on the left side of the table with your left hand, press it firmly into the center of the rectangular ",
+          "sha1_16": "10e0822544a9ec11",
+          "task_indices": [
+            12312
+          ],
+          "expected_embedding": "text_embs/10e0822544a9ec11.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece at (4,2) and moves it ",
+          "sha1_16": "49d2d47121356703",
+          "task_indices": [
+            12321
+          ],
+          "expected_embedding": "text_embs/49d2d47121356703.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece at (6,3) and moves it ",
+          "sha1_16": "a6930331bca017e0",
+          "task_indices": [
+            12372
+          ],
+          "expected_embedding": "text_embs/a6930331bca017e0.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (1,7) and moves it to the ",
+          "sha1_16": "788b54fce88f8ea8",
+          "task_indices": [
+            12373
+          ],
+          "expected_embedding": "text_embs/788b54fce88f8ea8.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece (4,2) and moves it to ",
+          "sha1_16": "51a5d9d9611ef8d8",
+          "task_indices": [
+            12425
+          ],
+          "expected_embedding": "text_embs/51a5d9d9611ef8d8.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece (2,4) and moves it to ",
+          "sha1_16": "0c027fda5d80bd4f",
+          "task_indices": [
+            12478
+          ],
+          "expected_embedding": "text_embs/0c027fda5d80bd4f.pt"
+        },
+        {
+          "task": "The right hand reaches out towards a stack of white cups on the blue table. Grab the topmost cup, pick it up and move it to the ",
+          "sha1_16": "086a9fec7d05905a",
+          "task_indices": [
+            12522
+          ],
+          "expected_embedding": "text_embs/086a9fec7d05905a.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the right hand grabs the red \"cannon\" piece at (1,4) and moves it ",
+          "sha1_16": "ea11f6f4d178575f",
+          "task_indices": [
+            12581
+          ],
+          "expected_embedding": "text_embs/ea11f6f4d178575f.pt"
+        },
+        {
+          "task": "With the right hand, rearrange and stack the pink playing cards located in the center of the blue table, between the yellow box ",
+          "sha1_16": "931ab107fb6d4f16",
+          "task_indices": [
+            12625
+          ],
+          "expected_embedding": "text_embs/931ab107fb6d4f16.pt"
+        },
+        {
+          "task": "Two paper cups were placed upside down on the table. The top one was picked up with the left hand and placed to the left of the ",
+          "sha1_16": "faa4fd674165fb83",
+          "task_indices": [
+            12633
+          ],
+          "expected_embedding": "text_embs/faa4fd674165fb83.pt"
+        },
+        {
+          "task": "Two paper cups are upside down and stacked on top of each other. Use your left hand to pick up the upper paper cup and place it ",
+          "sha1_16": "802b03574318c1f4",
+          "task_indices": [
+            12852
+          ],
+          "expected_embedding": "text_embs/802b03574318c1f4.pt"
+        },
+        {
+          "task": "Take the topmost white cup from the cup on the left side of the blue table with your left hand and place it on the left side of ",
+          "sha1_16": "d485964df3f26cd8",
+          "task_indices": [
+            12905
+          ],
+          "expected_embedding": "text_embs/d485964df3f26cd8.pt"
+        },
+        {
+          "task": "Grasp the transparent plastic lunch box with a transparent blue lid under the rubber glove with your left hand, remove the blue ",
+          "sha1_16": "50847672452133c1",
+          "task_indices": [
+            12964
+          ],
+          "expected_embedding": "text_embs/50847672452133c1.pt"
+        },
+        {
+          "task": "Pick up the small white seal on the right side of the table with your right hand. Press the seal onto the open red paste on the ",
+          "sha1_16": "c7884eb840c2dc07",
+          "task_indices": [
+            13002
+          ],
+          "expected_embedding": "text_embs/c7884eb840c2dc07.pt"
+        },
+        {
+          "task": "Grasp the transparent plastic lunch box with a transparent blue lid located beneath the peanuts with your left hand, remove the ",
+          "sha1_16": "884a4608961919a6",
+          "task_indices": [
+            13120
+          ],
+          "expected_embedding": "text_embs/884a4608961919a6.pt"
+        },
+        {
+          "task": "Pick up the topmost cup from the stack of white cups on the left side of the table with your left hand and place it on the left ",
+          "sha1_16": "6d4472145c9fd5c9",
+          "task_indices": [
+            13169
+          ],
+          "expected_embedding": "text_embs/6d4472145c9fd5c9.pt"
+        },
+        {
+          "task": "Pick up a cup from the top of the white cup on the left side of the table with your left hand, and then place it to the left of ",
+          "sha1_16": "5ba9f2618fd64ddb",
+          "task_indices": [
+            13170
+          ],
+          "expected_embedding": "text_embs/5ba9f2618fd64ddb.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"soldier\" piece (0,3) and moves it to ",
+          "sha1_16": "c268f040aa704590",
+          "task_indices": [
+            13179
+          ],
+          "expected_embedding": "text_embs/c268f040aa704590.pt"
+        },
+        {
+          "task": "Reach out with your right hand to pick up and shake the transparent plastic bottle on the table, and then place it on the metal ",
+          "sha1_16": "708dc6ead871eaa6",
+          "task_indices": [
+            13202
+          ],
+          "expected_embedding": "text_embs/708dc6ead871eaa6.pt"
+        },
+        {
+          "task": "Open the middle drawer of the white storage box with your right hand, grab the white box on the table, put it in the drawer and ",
+          "sha1_16": "5d52136692086d2d",
+          "task_indices": [
+            13219
+          ],
+          "expected_embedding": "text_embs/5d52136692086d2d.pt"
+        },
+        {
+          "task": "Grasp the bento box located in the center of the table with your left hand, remove the lid with your right hand and place it on ",
+          "sha1_16": "18a9c672a1d341b3",
+          "task_indices": [
+            13244
+          ],
+          "expected_embedding": "text_embs/18a9c672a1d341b3.pt"
+        },
+        {
+          "task": "Grasp the plastic lunch box with a blue lid in the center of the table with your left hand, remove the lid with your right hand ",
+          "sha1_16": "ffbf3330f2f4dcff",
+          "task_indices": [
+            13294
+          ],
+          "expected_embedding": "text_embs/ffbf3330f2f4dcff.pt"
+        },
+        {
+          "task": "Place two red rectangular blocks vertically above the three red square blocks arranged horizontally to form a double-layer wall ",
+          "sha1_16": "9728c531003b034e",
+          "task_indices": [
+            13429
+          ],
+          "expected_embedding": "text_embs/9728c531003b034e.pt"
+        },
+        {
+          "task": "Pick up the small seal with your right hand, press it onto the seal paste, and then put it back to its original position on the ",
+          "sha1_16": "5317e7fcdb7f2faf",
+          "task_indices": [
+            13494
+          ],
+          "expected_embedding": "text_embs/5317e7fcdb7f2faf.pt"
+        },
+        {
+          "task": "Hold the transparent plastic lunch box with your left hand, open the blue semi-transparent lid of the lunch box with your right ",
+          "sha1_16": "a8bc13e73f6a04da",
+          "task_indices": [
+            13500
+          ],
+          "expected_embedding": "text_embs/a8bc13e73f6a04da.pt"
+        },
+        {
+          "task": "Grasp the transparent rectangular plastic container with your left hand, and open the blue lid of the container with your right ",
+          "sha1_16": "e165c81e974b8271",
+          "task_indices": [
+            13694
+          ],
+          "expected_embedding": "text_embs/e165c81e974b8271.pt"
+        },
+        {
+          "task": "Hold a transparent rectangular container with your left hand and open the light blue semi-transparent lid of the container with ",
+          "sha1_16": "c1007bbfd55865d1",
+          "task_indices": [
+            13748
+          ],
+          "expected_embedding": "text_embs/c1007bbfd55865d1.pt"
+        },
+        {
+          "task": "Taking the lower left corner of the chessboard as the origin, the left hand grabs the red \"car\" piece (2,7) and moves it to the ",
+          "sha1_16": "d33ed8ac31ede519",
+          "task_indices": [
+            13794
+          ],
+          "expected_embedding": "text_embs/d33ed8ac31ede519.pt"
+        },
+        {
+          "task": "Use your left hand to take the yellow rectangular tape on the far left of the blue table. Hold the edge of the tape and tear it ",
+          "sha1_16": "468091b0aca12d70",
+          "task_indices": [
+            13856
+          ],
+          "expected_embedding": "text_embs/468091b0aca12d70.pt"
+        },
+        {
+          "task": "Hold the lunch box with both hands. Secure the lunch box with your left hand and grasp the right edge of the blue lid with your ",
+          "sha1_16": "6174458859738303",
+          "task_indices": [
+            14201
+          ],
+          "expected_embedding": "text_embs/6174458859738303.pt"
+        },
+        {
+          "task": "Pick up the seal on the table with your right hand, insert it into the red seal paste on the table, and then put it back on the ",
+          "sha1_16": "bfb9451d553d874c",
+          "task_indices": [
+            14249
+          ],
+          "expected_embedding": "text_embs/bfb9451d553d874c.pt"
+        },
+        {
+          "task": "Place a piece of white paper as a liner on a rectangular metal tray, which is located in the center of a tablecloth with a grid ",
+          "sha1_16": "e19d7b638998a8b1",
+          "task_indices": [
+            14478
+          ],
+          "expected_embedding": "text_embs/e19d7b638998a8b1.pt"
+        },
+        {
+          "task": "Extend your left hand towards the blue rectangular package on the left side of the table. Push the package to the right towards ",
+          "sha1_16": "883904cb4d4f46ef",
+          "task_indices": [
+            14484
+          ],
+          "expected_embedding": "text_embs/883904cb4d4f46ef.pt"
+        },
+        {
+          "task": "Take the white package at the left front of the table with your left hand, push it towards the center, and place it between the ",
+          "sha1_16": "140c3dde4a23ebc8",
+          "task_indices": [
+            14485
+          ],
+          "expected_embedding": "text_embs/140c3dde4a23ebc8.pt"
+        },
+        {
+          "task": "Push the white and purple toothpaste on the left side of the blue table to the upper right to the middle of the table with your ",
+          "sha1_16": "9565ed8bf3a2ca8a",
+          "task_indices": [
+            14591
+          ],
+          "expected_embedding": "text_embs/9565ed8bf3a2ca8a.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the middle lunch box, grasping both the lid and the bottom edge at the same time. Lift the lid ",
+          "sha1_16": "54e63ec05895ee1f",
+          "task_indices": [
+            14629
+          ],
+          "expected_embedding": "text_embs/54e63ec05895ee1f.pt"
+        },
+        {
+          "task": "Take the purple and white toothpaste on the left side of the blue table with your left hand and push it towards the center with ",
+          "sha1_16": "0e99afc743ae4b25",
+          "task_indices": [
+            14636
+          ],
+          "expected_embedding": "text_embs/0e99afc743ae4b25.pt"
+        },
+        {
+          "task": "Reach out both hands towards the lunch box in the center of the table. Fix the container with your left hand and grasp the edge ",
+          "sha1_16": "0ca35e4349796b64",
+          "task_indices": [
+            14723
+          ],
+          "expected_embedding": "text_embs/0ca35e4349796b64.pt"
+        },
+        {
+          "task": "Pick up the broom with your right hand, move the sweeping tool forward at a constant speed, and calmly clear away the scattered ",
+          "sha1_16": "fe84881126131a7f",
+          "task_indices": [
+            14742
+          ],
+          "expected_embedding": "text_embs/fe84881126131a7f.pt"
+        },
+        {
+          "task": "With your right hand, reach the transparent plastic cup on the right side of the blue table and push it to the left towards the ",
+          "sha1_16": "7ed967db7acacf9b",
+          "task_indices": [
+            14789
+          ],
+          "expected_embedding": "text_embs/7ed967db7acacf9b.pt"
+        },
+        {
+          "task": "Use your left hand to adjust an open glasses case, pick up the edge of the glasses frame on the table and put it in, then close ",
+          "sha1_16": "3b95523358e7be12",
+          "task_indices": [
+            14844
+          ],
+          "expected_embedding": "text_embs/3b95523358e7be12.pt"
+        },
+        {
+          "task": "Pick up the green and white bag containing starch on the left side of the black plate with your left hand, pour a little starch ",
+          "sha1_16": "95c74111f53b6667",
+          "task_indices": [
+            14854
+          ],
+          "expected_embedding": "text_embs/95c74111f53b6667.pt"
+        },
+        {
+          "task": "Take the pink card on the right side of the blue table with your right hand. Spread the cards out on the table to shuffle them, ",
+          "sha1_16": "8808dcee0d159540",
+          "task_indices": [
+            14870
+          ],
+          "expected_embedding": "text_embs/8808dcee0d159540.pt"
+        },
+        {
+          "task": "Bring your left hand close to the yellow pear located at the front of the blue table. Push the pear upwards with your left hand ",
+          "sha1_16": "669571bc15fcf16a",
+          "task_indices": [
+            14904
+          ],
+          "expected_embedding": "text_embs/669571bc15fcf16a.pt"
+        },
+        {
+          "task": "With the right hand, push the bunch of deep purple grapes on the right side of the table covered with a blue tablecloth towards ",
+          "sha1_16": "37238987334330f0",
+          "task_indices": [
+            15236
+          ],
+          "expected_embedding": "text_embs/37238987334330f0.pt"
+        },
+        {
+          "task": "Take the small white cup at the front of the blue table with your right hand, push it to the side of the white rectangular box, ",
+          "sha1_16": "c78646ddf93b3257",
+          "task_indices": [
+            15382
+          ],
+          "expected_embedding": "text_embs/c78646ddf93b3257.pt"
+        },
+        {
+          "task": "Take the item with red and white patterns located on the left front side of the blue table with your left hand. Push it towards ",
+          "sha1_16": "e1753b6de258b58e",
+          "task_indices": [
+            15433
+          ],
+          "expected_embedding": "text_embs/e1753b6de258b58e.pt"
+        },
+        {
+          "task": "Place your left hand close to the rectangular plastic lunch box on the table. Grasp the blue lid along the edge with your right ",
+          "sha1_16": "914ceb1ee92bd87b",
+          "task_indices": [
+            15531
+          ],
+          "expected_embedding": "text_embs/914ceb1ee92bd87b.pt"
+        },
+        {
+          "task": "Move the small white paper cup from the center of the bottom of the blue table to the upper side with your right hand. Push the ",
+          "sha1_16": "6a421a35c3c1965b",
+          "task_indices": [
+            15543
+          ],
+          "expected_embedding": "text_embs/6a421a35c3c1965b.pt"
+        },
+        {
+          "task": "Grasp the small white rectangular box located between the mineral water bottle and the red and black striped box with your left ",
+          "sha1_16": "77bd6aaac92ea057",
+          "task_indices": [
+            15633
+          ],
+          "expected_embedding": "text_embs/77bd6aaac92ea057.pt"
+        },
+        {
+          "task": "First, use your right hand to push the cup at the bottom of the toothpaste box to the left, and then use your left hand to pick ",
+          "sha1_16": "a50819286f4bf85b",
+          "task_indices": [
+            15684
+          ],
+          "expected_embedding": "text_embs/a50819286f4bf85b.pt"
+        },
+        {
+          "task": "Extend your right hand to one side of the picture, separate the red playing cards on the colored table and stack them together, ",
+          "sha1_16": "b77dbe5e136b117d",
+          "task_indices": [
+            15696
+          ],
+          "expected_embedding": "text_embs/b77dbe5e136b117d.pt"
+        },
+        {
+          "task": "Grasp a transparent rectangular container with a blue lid on top with your left hand. Grasp the edge of the lid with your right ",
+          "sha1_16": "9c7ef100d37e6305",
+          "task_indices": [
+            15712
+          ],
+          "expected_embedding": "text_embs/9c7ef100d37e6305.pt"
+        },
+        {
+          "task": "Take the small round jar on the right side of the blue table with your right hand. Push the jar towards the transparent plastic ",
+          "sha1_16": "a9129ef57f24f2c5",
+          "task_indices": [
+            15779
+          ],
+          "expected_embedding": "text_embs/a9129ef57f24f2c5.pt"
+        },
+        {
+          "task": "Enter from one side of the picture with your left hand, and on the workbench printed with colorful flowers and plants, use your ",
+          "sha1_16": "d0ae4cbb842616ea",
+          "task_indices": [
+            15800
+          ],
+          "expected_embedding": "text_embs/d0ae4cbb842616ea.pt"
+        },
+        {
+          "task": "On the blue table, open the lid with your left hand and hold the base with your right hand, working together to open the silver ",
+          "sha1_16": "5462abf925568a42",
+          "task_indices": [
+            15872
+          ],
+          "expected_embedding": "text_embs/5462abf925568a42.pt"
+        },
+        {
+          "task": "Take the white name tag with an orange ribbon tied on the left side of the table with your left hand. Push the object along the ",
+          "sha1_16": "7ef08613b6e55125",
+          "task_indices": [
+            15934
+          ],
+          "expected_embedding": "text_embs/7ef08613b6e55125.pt"
+        },
+        {
+          "task": "On one side of the picture, the red playing cards on the colored table are taken apart and combined into a stack, then the hand ",
+          "sha1_16": "ae4eb3c731ffb8bf",
+          "task_indices": [
+            16008
+          ],
+          "expected_embedding": "text_embs/ae4eb3c731ffb8bf.pt"
+        },
+        {
+          "task": "Take the patterned silver rectangular object in the middle of the left front of the blue table with your left hand, and push it ",
+          "sha1_16": "9fbaa97fc6fb5999",
+          "task_indices": [
+            16166
+          ],
+          "expected_embedding": "text_embs/9fbaa97fc6fb5999.pt"
+        },
+        {
+          "task": "Take the small white rectangular object on the far left of the blue table with your left hand and push it to the right until it ",
+          "sha1_16": "295c1916bdb78a30",
+          "task_indices": [
+            16221
+          ],
+          "expected_embedding": "text_embs/295c1916bdb78a30.pt"
+        },
+        {
+          "task": "Grab the pink seasoning packet on the right side of the table with your right hand. Move it above the black tray in the middle. ",
+          "sha1_16": "cb243f066f0758cd",
+          "task_indices": [
+            16294
+          ],
+          "expected_embedding": "text_embs/cb243f066f0758cd.pt"
+        },
+        {
+          "task": "Take the pink tissue bag on the upper left side of the round plastic can on the blue table with your left hand. Push the tissue ",
+          "sha1_16": "cec353e0fb8e0975",
+          "task_indices": [
+            16397
+          ],
+          "expected_embedding": "text_embs/cec353e0fb8e0975.pt"
+        },
+        {
+          "task": "Take the small white paper cup located near the right side of the blue table with your right hand. Push it to the center of the ",
+          "sha1_16": "134138674797e088",
+          "task_indices": [
+            16511
+          ],
+          "expected_embedding": "text_embs/134138674797e088.pt"
+        },
+        {
+          "task": "Take the silver rectangular item on the left side of the blue table with your left hand and push it towards the center near the ",
+          "sha1_16": "814b4b022937a085",
+          "task_indices": [
+            16512
+          ],
+          "expected_embedding": "text_embs/814b4b022937a085.pt"
+        },
+        {
+          "task": "Stretch out your right hand to reach the white rectangular box with blue words printed on it on the right side of the table and ",
+          "sha1_16": "62f4baf10a005c5e",
+          "task_indices": [
+            16571
+          ],
+          "expected_embedding": "text_embs/62f4baf10a005c5e.pt"
+        },
+        {
+          "task": "Reach out your left hand towards the rectangular box located between the orange jelly and the tape. On the blue table, push the ",
+          "sha1_16": "be890f9f2f0d05a9",
+          "task_indices": [
+            16614
+          ],
+          "expected_embedding": "text_embs/be890f9f2f0d05a9.pt"
+        },
+        {
+          "task": "Slide the square plastic box containing red and black items from the right side of the blue table to the center with your right ",
+          "sha1_16": "d0a98105ee240b0a",
+          "task_indices": [
+            16669
+          ],
+          "expected_embedding": "text_embs/d0a98105ee240b0a.pt"
+        },
+        {
+          "task": "Reach your left hand towards the yellow plush toy on the left side of the blue table. Push the toy towards the center with your ",
+          "sha1_16": "16f87bb2123a35b2",
+          "task_indices": [
+            16671
+          ],
+          "expected_embedding": "text_embs/16f87bb2123a35b2.pt"
+        },
+        {
+          "task": "Pick up the blue building block with your right hand and then place it on the large orange one. Pick up the small pink building ",
+          "sha1_16": "2b013e971363f2a7",
+          "task_indices": [
+            16678
+          ],
+          "expected_embedding": "text_embs/2b013e971363f2a7.pt"
+        },
+        {
+          "task": "Place the dice on the tray under the sponge with your left hand, then pick up the paper cup placed on the table and shake it on ",
+          "sha1_16": "c01ee89c090931e2",
+          "task_indices": [
+            16887
+          ],
+          "expected_embedding": "text_embs/c01ee89c090931e2.pt"
+        },
+        {
+          "task": "On the red and white checkered table, place the dice on the tray with your right hand, pick up the paper cup, and then shake it ",
+          "sha1_16": "cdbd5f68c5c76ced",
+          "task_indices": [
+            16888
+          ],
+          "expected_embedding": "text_embs/cdbd5f68c5c76ced.pt"
+        },
+        {
+          "task": "At the lower right corner of the screaming chicken, place the dice on the tray with your right hand, pick up the paper cup, and ",
+          "sha1_16": "7f27551e7d8d4205",
+          "task_indices": [
+            16938
+          ],
+          "expected_embedding": "text_embs/7f27551e7d8d4205.pt"
+        },
+        {
+          "task": "The silver laptop that is closed towards the center of the yellow checkered table. Lift the lid with your right hand. Stabilize ",
+          "sha1_16": "ee72b7ad27775306",
+          "task_indices": [
+            16978
+          ],
+          "expected_embedding": "text_embs/ee72b7ad27775306.pt"
+        },
+        {
+          "task": "Move the pink floral-patterned playing cards from the left side of the table covered with a floral tablecloth to the center and ",
+          "sha1_16": "faab20666fa80607",
+          "task_indices": [
+            17124
+          ],
+          "expected_embedding": "text_embs/faab20666fa80607.pt"
+        },
+        {
+          "task": "Pick up two drumsticks, repeatedly strike a small drum with red and white stripes, then place the drumsticks on a metal tray on ",
+          "sha1_16": "025012d11792516c",
+          "task_indices": [
+            17151
+          ],
+          "expected_embedding": "text_embs/025012d11792516c.pt"
+        },
+        {
+          "task": "Move the pink floral cards on the right side of the patterned tablecloth, lay them out in a row, and then fold them back into a ",
+          "sha1_16": "c90c8612d7298598",
+          "task_indices": [
+            17429
+          ],
+          "expected_embedding": "text_embs/c90c8612d7298598.pt"
+        },
+        {
+          "task": "First, use your right hand to push the wet tissue box in the green area onto the pink area, and then use your left hand to push ",
+          "sha1_16": "dffeadffc22422af",
+          "task_indices": [
+            17515
+          ],
+          "expected_embedding": "text_embs/dffeadffc22422af.pt"
+        },
+        {
+          "task": "Swing the toy bear’s arms.",
+          "sha1_16": "0d943be6bd299c1e",
+          "task_indices": [
+            17746
+          ],
+          "expected_embedding": "text_embs/0d943be6bd299c1e.pt"
+        },
+        {
+          "task": "First, use your left hand to push the golden-yellow packaged cookies from the yellow area onto the pink area, and then use your ",
+          "sha1_16": "206c1916d5f44bc4",
+          "task_indices": [
+            17839
+          ],
+          "expected_embedding": "text_embs/206c1916d5f44bc4.pt"
+        },
+        {
+          "task": "Lift the metal bowl on the far left and place it upside down on top of the middle bowl. Then lift the bowl on the far right and ",
+          "sha1_16": "30ca1735d645edc9",
+          "task_indices": [
+            17844
+          ],
+          "expected_embedding": "text_embs/30ca1735d645edc9.pt"
+        },
+        {
+          "task": "First, use your left hand to push the mineral water bottle in the yellow area to the pink area, and then use your right hand to ",
+          "sha1_16": "f61529fc191b27bd",
+          "task_indices": [
+            17942
+          ],
+          "expected_embedding": "text_embs/f61529fc191b27bd.pt"
+        },
+        {
+          "task": "Place the toothpaste in the green area on the yellow area with your left hand, and then move it to the red area with your right ",
+          "sha1_16": "95e4ace51069df49",
+          "task_indices": [
+            17943
+          ],
+          "expected_embedding": "text_embs/95e4ace51069df49.pt"
+        },
+        {
+          "task": "Push the tube of purple toothpaste onto the yellow area with your right hand, and then flip it to the left twice with your left ",
+          "sha1_16": "64f1d5ba0e57eeec",
+          "task_indices": [
+            17991
+          ],
+          "expected_embedding": "text_embs/64f1d5ba0e57eeec.pt"
+        },
+        {
+          "task": "Pick up the lint remover from the table, roll it over the dark long-sleeved shirt to remove the debris, and then put it back in ",
+          "sha1_16": "028dc34f15d061e5",
+          "task_indices": [
+            18043
+          ],
+          "expected_embedding": "text_embs/028dc34f15d061e5.pt"
+        },
+        {
+          "task": "First, use your left hand to push the mineral water bottle in the colored area onto the pink area, and then use your right hand ",
+          "sha1_16": "cd96e4be3d4b51c9",
+          "task_indices": [
+            18073
+          ],
+          "expected_embedding": "text_embs/cd96e4be3d4b51c9.pt"
+        },
+        {
+          "task": "Pick up the pink cards on the blue table with your left hand. Spread the playing cards out on the table with your left hand and ",
+          "sha1_16": "95feedd7177393af",
+          "task_indices": [
+            18130
+          ],
+          "expected_embedding": "text_embs/95feedd7177393af.pt"
+        },
+        {
+          "task": "Take the orange packaging object on the green cushion on the left side of the table with your left hand. Push the object to the ",
+          "sha1_16": "f2ff6d2771868269",
+          "task_indices": [
+            18193
+          ],
+          "expected_embedding": "text_embs/f2ff6d2771868269.pt"
+        },
+        {
+          "task": "First, use your left hand to push the box on the yellow cloth onto the pink cloth, and then use your right hand to push the box ",
+          "sha1_16": "29205c08322fcfe2",
+          "task_indices": [
+            18550
+          ],
+          "expected_embedding": "text_embs/29205c08322fcfe2.pt"
+        },
+        {
+          "task": "Pick up a white toothbrush and a tube of blue toothpaste with your left hand and put them into a white cup in the center of the ",
+          "sha1_16": "3a6daeb7a7bfaacb",
+          "task_indices": [
+            18583
+          ],
+          "expected_embedding": "text_embs/3a6daeb7a7bfaacb.pt"
+        },
+        {
+          "task": "Pick up the playing cards and place them on the whiteboard. Pick up the magnetic particles and put them on the playing cards to ",
+          "sha1_16": "2247acd2a31c8b00",
+          "task_indices": [
+            18591
+          ],
+          "expected_embedding": "text_embs/2247acd2a31c8b00.pt"
+        },
+        {
+          "task": "Pick up the pink card on the blue table with your left hand. Spread the playing cards out on the table with your left hand, and ",
+          "sha1_16": "58368a99cca68526",
+          "task_indices": [
+            18651
+          ],
+          "expected_embedding": "text_embs/58368a99cca68526.pt"
+        },
+        {
+          "task": "Extend your right hand towards the black and white plush toy in the center of the blue plane. Gently stroke the back of the toy ",
+          "sha1_16": "8cd7f9297bf42915",
+          "task_indices": [
+            18663
+          ],
+          "expected_embedding": "text_embs/8cd7f9297bf42915.pt"
+        },
+        {
+          "task": "Pick up the playing card in front of the skipping rope and place it on the whiteboard. Pick up the magnetic particle and put it ",
+          "sha1_16": "349e74290ba7be90",
+          "task_indices": [
+            18680
+          ],
+          "expected_embedding": "text_embs/349e74290ba7be90.pt"
+        },
+        {
+          "task": "Reach out your right hand towards the orange box placed on the pink cloth. Push the box horizontally from the pink cloth to the ",
+          "sha1_16": "632a2a4fae5cca3a",
+          "task_indices": [
+            18772
+          ],
+          "expected_embedding": "text_embs/632a2a4fae5cca3a.pt"
+        },
+        {
+          "task": "Put a white toothbrush and a blue and white toothpaste tube into the white cup located in the center of the bottom of the table ",
+          "sha1_16": "3e3a26be13e09974",
+          "task_indices": [
+            18879
+          ],
+          "expected_embedding": "text_embs/3e3a26be13e09974.pt"
+        },
+        {
+          "task": "Move the three pink-patterned playing cards on the blue table with your right hand to rearrange their positions. Then stack the ",
+          "sha1_16": "d486fee1fe4f9cb0",
+          "task_indices": [
+            19176
+          ],
+          "expected_embedding": "text_embs/d486fee1fe4f9cb0.pt"
+        },
+        {
+          "task": "Move the three pink-patterned cards on the blue table with your left hand and rearrange their positions. Then stack the playing ",
+          "sha1_16": "68afc4ddfff3c42d",
+          "task_indices": [
+            19220
+          ],
+          "expected_embedding": "text_embs/68afc4ddfff3c42d.pt"
+        },
+        {
+          "task": "Shake the black sieve above the table with your right hand. Put the sieve back on the table, open the lid of the sieve, and the ",
+          "sha1_16": "b7e6c19a9ec0af2d",
+          "task_indices": [
+            19243
+          ],
+          "expected_embedding": "text_embs/b7e6c19a9ec0af2d.pt"
+        },
+        {
+          "task": "First, use your right hand to push the circular box on the green cloth onto the pink cloth, and then use your left hand to push ",
+          "sha1_16": "1392ea99f4cd0dc7",
+          "task_indices": [
+            19405
+          ],
+          "expected_embedding": "text_embs/1392ea99f4cd0dc7.pt"
+        },
+        {
+          "task": "Pick up the purple toothpaste with your right hand and put it in the basin. Pick up the transparent box and the blue toothpaste ",
+          "sha1_16": "de45317ccb96c2d6",
+          "task_indices": [
+            19407
+          ],
+          "expected_embedding": "text_embs/de45317ccb96c2d6.pt"
+        },
+        {
+          "task": "First, use your right hand to pick up the cylindrical item under the rag on the table and put it into the basin. Then, use your ",
+          "sha1_16": "3deeddfbaf65d1d6",
+          "task_indices": [
+            19459
+          ],
+          "expected_embedding": "text_embs/3deeddfbaf65d1d6.pt"
+        },
+        {
+          "task": "Lift the stainless steel bowl on the far right and place it into the bowl in the middle, then lift the bowl on the far left and ",
+          "sha1_16": "feb1da4255ea99d6",
+          "task_indices": [
+            19746
+          ],
+          "expected_embedding": "text_embs/feb1da4255ea99d6.pt"
+        },
+        {
+          "task": "Three identical stainless steel bowls are horizontally aligned on the printed tablecloth. The bowls on the left and right sides ",
+          "sha1_16": "eb370d1620efb633",
+          "task_indices": [
+            19793
+          ],
+          "expected_embedding": "text_embs/eb370d1620efb633.pt"
+        },
+        {
+          "task": "Lift the metal bowl on the far right and place it upside down on top of the one in the middle to form a double bowl stack. Lift ",
+          "sha1_16": "cf327972282705cc",
+          "task_indices": [
+            19794
+          ],
+          "expected_embedding": "text_embs/cf327972282705cc.pt"
+        },
+        {
+          "task": "Pick up the transparent box with your right hand and put the purple toothpaste into the basin. Pick up the blue toothpaste with ",
+          "sha1_16": "9f758540482b2e22",
+          "task_indices": [
+            19878
+          ],
+          "expected_embedding": "text_embs/9f758540482b2e22.pt"
+        },
+        {
+          "task": "Reach out your right hand towards the plastic can located on the yellow pad in the center. Push the jar to the left until it is ",
+          "sha1_16": "3aea43eab428e0ee",
+          "task_indices": [
+            19969
+          ],
+          "expected_embedding": "text_embs/3aea43eab428e0ee.pt"
+        },
+        {
+          "task": "He picked up the blue toothpaste tube and the white toothbrush from the table with his right hand. Put these two items into the ",
+          "sha1_16": "81ec5a2be842a88c",
+          "task_indices": [
+            19973
+          ],
+          "expected_embedding": "text_embs/81ec5a2be842a88c.pt"
+        },
+        {
+          "task": "Reach out to the plastic can placed on the pink pad with your left hand. Push the object horizontally across the table until it ",
+          "sha1_16": "374e01122dfa4efe",
+          "task_indices": [
+            20069
+          ],
+          "expected_embedding": "text_embs/374e01122dfa4efe.pt"
+        },
+        {
+          "task": "Put the toothpaste and bath ball into the basin with your left hand, and then put the toothpaste into the basin with your right ",
+          "sha1_16": "8b467009ab4aeb80",
+          "task_indices": [
+            20121
+          ],
+          "expected_embedding": "text_embs/8b467009ab4aeb80.pt"
+        },
+        {
+          "task": "Move the white toothpaste from the pink towel on the left to the yellow towel in the middle with your left hand, and then slide ",
+          "sha1_16": "c3916e8847f11de4",
+          "task_indices": [
+            20182
+          ],
+          "expected_embedding": "text_embs/c3916e8847f11de4.pt"
+        },
+        {
+          "task": "Reach for the toothpaste on the yellow cloth in the middle with your right hand. Gently touch the toothpaste and push it to the ",
+          "sha1_16": "984830c6bdde12f9",
+          "task_indices": [
+            20275
+          ],
+          "expected_embedding": "text_embs/984830c6bdde12f9.pt"
+        },
+        {
+          "task": "Place the bath flowers on the table with your right hand, the toothpaste with your left hand, and the wet wipes with your right ",
+          "sha1_16": "6c24b4760becc330",
+          "task_indices": [
+            20278
+          ],
+          "expected_embedding": "text_embs/6c24b4760becc330.pt"
+        },
+        {
+          "task": "Open the drawer in the middle layer of the white storage cabinet, take out the small dark-colored objects and place them on the ",
+          "sha1_16": "751f547237a872d2",
+          "task_indices": [
+            20457
+          ],
+          "expected_embedding": "text_embs/751f547237a872d2.pt"
+        },
+        {
+          "task": "Put the bath ball into the basin with your right hand, the toothpaste into the basin with your right hand, and the cup into the ",
+          "sha1_16": "618184444bb771a4",
+          "task_indices": [
+            20646
+          ],
+          "expected_embedding": "text_embs/618184444bb771a4.pt"
+        },
+        {
+          "task": "Stack three cubes by size: the largest one (white) at the bottom, the middle one (purple), and the smallest one (orange) at the ",
+          "sha1_16": "378c9596a3cd8aed",
+          "task_indices": [
+            20648
+          ],
+          "expected_embedding": "text_embs/378c9596a3cd8aed.pt"
+        },
+        {
+          "task": "Stretch your right hand towards the yellow cushion in the middle. Stretch out your left hand to grasp the small round container ",
+          "sha1_16": "aab736fa5974a4a3",
+          "task_indices": [
+            20716
+          ],
+          "expected_embedding": "text_embs/aab736fa5974a4a3.pt"
+        },
+        {
+          "task": "Stack three cubes by size: the largest one at the bottom is white, the middle one is medium purple, and the smallest one at the ",
+          "sha1_16": "34471f76ac4f1ca2",
+          "task_indices": [
+            20726
+          ],
+          "expected_embedding": "text_embs/34471f76ac4f1ca2.pt"
+        },
+        {
+          "task": "Place several items, including an orange box, a glass jar, a yellow plush toy, and a yellow snack bag, into a central cardboard ",
+          "sha1_16": "8110d274f89ef52a",
+          "task_indices": [
+            20753
+          ],
+          "expected_embedding": "text_embs/8110d274f89ef52a.pt"
+        }
+      ]
+    },
+    {
+      "dataset": "singletask",
+      "tasks_file": "singletask/meta/tasks.parquet",
+      "embedding_dir": "singletask/text_embs",
+      "task_rows": 53,
+      "unique_task_texts": 53,
+      "present_unique_embeddings": 51,
+      "missing_unique_embeddings": 2,
+      "affected_task_rows": 2,
+      "missing": [
+        {
+          "task": "Fold the black paper box and put  the yellow cube inside.",
+          "sha1_16": "8e61b5d41f68ffa9",
+          "task_indices": [
+            3
+          ],
+          "expected_embedding": "text_embs/8e61b5d41f68ffa9.pt"
+        },
+        {
+          "task": "Fold the black paper box and put the blue circular object  inside.",
+          "sha1_16": "13d061325b2bb66c",
+          "task_indices": [
+            36
+          ],
+          "expected_embedding": "text_embs/13d061325b2bb66c.pt"
+        }
+      ]
+    },
+    {
+      "dataset": "val",
+      "tasks_file": "val/meta/tasks.parquet",
+      "embedding_dir": "val/text_embs",
+      "task_rows": 96,
+      "unique_task_texts": 96,
+      "present_unique_embeddings": 96,
+      "missing_unique_embeddings": 0,
+      "affected_task_rows": 0,
+      "missing": []
+    }
+  ]
+}

@@ -40,6 +40,18 @@ def test_unlimited_training_iterator_is_unchanged():
     assert list(iter(_finite_dataset(None))) == list(range(20))
 
 
+def test_missing_text_embedding_filter_is_opt_in():
+    dataset = object.__new__(ShardedLeRobotMixtureDataset)
+    dataset.skip_samples_without_precomputed_text_embeddings = False
+    assert not dataset._should_skip_missing_text_embedding({})
+
+    dataset.skip_samples_without_precomputed_text_embeddings = True
+    assert dataset._should_skip_missing_text_embedding({})
+    assert not dataset._should_skip_missing_text_embedding(
+        {"task_embedding": object()}
+    )
+
+
 def test_trajectory_shards_handle_exact_cutoffs_without_empty_shards():
     shards, lengths = _group_trajectories_into_shards(
         [0, 1],

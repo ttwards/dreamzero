@@ -1349,6 +1349,7 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         pack_action_horizon: int = 24,
         pack_pending_limit: int = 8,
         max_samples_per_rank: int | None = None,
+        skip_samples_without_precomputed_text_embeddings: bool = False,
     ):
         """
         Initialize the mixture dataset.
@@ -1364,6 +1365,10 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
             max_samples_per_rank (int | None): Optional finite output budget for
                 each distributed rank. The budget is split across DataLoader
                 workers so evaluation yields exactly this many samples per rank.
+            skip_samples_without_precomputed_text_embeddings (bool): Skip a
+                sample when its single-dataset loader did not attach a cached
+                ``task_embedding``. The iterable then advances to the next
+                sample instead of falling back to rank-local online T5.
         """
         super().__init__(
             data_mixture=data_mixture,
@@ -1385,6 +1390,9 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
         self.pack_action_horizon = pack_action_horizon
         self.pack_pending_limit = pack_pending_limit
         self.max_samples_per_rank = max_samples_per_rank
+        self.skip_samples_without_precomputed_text_embeddings = bool(
+            skip_samples_without_precomputed_text_embeddings
+        )
         if self.max_samples_per_rank is not None and self.max_samples_per_rank <= 0:
             raise ValueError(
                 "max_samples_per_rank must be positive, got "
@@ -1648,11 +1656,21 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
                 }
                 step_data = dataset.get_step_data(trajectory_id, indices)
                 # Skip samples where state or action would be empty
-                if step_data is not None:
-                    yield dataset.transforms(step_data)
+                if step_data is None:
+                    continue
+                if self._should_skip_missing_text_embedding(step_data):
+                    continue
+                yield dataset.transforms(step_data)
 
             # Delete the cached shard and shard start indices to free up memory
             dataset.delete_cached_shard()
+
+    def _should_skip_missing_text_embedding(self, step_data: dict) -> bool:
+        """Return whether this sample must not use the online T5 fallback."""
+        return (
+            self.skip_samples_without_precomputed_text_embeddings
+            and "task_embedding" not in step_data
+        )
 
     def cache_next_shard(self):
         """Cache the next shard in a background thread."""
