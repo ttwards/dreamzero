@@ -754,25 +754,58 @@ class ProfCallback(transformers.TrainerCallback):
                 or key.startswith("Optimizer.step")
             ):
                 continue
-            stage_times[key] = {
-                "calls": int(getattr(event, "count", 0) or 0),
-                "cpu_total_s": float(
-                    getattr(event, "cpu_time_total", 0) or 0
-                )
-                / 1e6,
-                "self_cpu_s": float(
-                    getattr(event, "self_cpu_time_total", 0) or 0
-                )
-                / 1e6,
-                "device_total_s": float(
-                    getattr(event, "device_time_total", 0) or 0
-                )
-                / 1e6,
-                "self_device_s": float(
-                    getattr(event, "self_device_time_total", 0) or 0
-                )
-                / 1e6,
-            }
+            count = int(getattr(event, "count", 0) or 0)
+            cpu_total_us = float(getattr(event, "cpu_time_total", 0) or 0)
+            self_cpu_us = float(
+                getattr(event, "self_cpu_time_total", 0) or 0
+            )
+            device_total_us = float(
+                getattr(event, "device_time_total", 0) or 0
+            )
+            self_device_us = float(
+                getattr(event, "self_device_time_total", 0) or 0
+            )
+            stage = stage_times.setdefault(
+                key,
+                {
+                    "calls": 0,
+                    "cpu_calls": 0,
+                    "gpu_annotation_calls": 0,
+                    "cpu_total_s": 0.0,
+                    "self_cpu_s": 0.0,
+                    "cpu_child_device_total_s": 0.0,
+                    "gpu_annotation_total_s": 0.0,
+                    "gpu_annotation_self_s": 0.0,
+                },
+            )
+            if cpu_total_us > 0:
+                # This is the logical record_function invocation on the host.
+                # Its device total contains child kernels correlated to that
+                # host range, rather than the CUDA-stream annotation span.
+                stage["cpu_calls"] += count
+                stage["cpu_total_s"] += cpu_total_us / 1e6
+                stage["self_cpu_s"] += self_cpu_us / 1e6
+                stage["cpu_child_device_total_s"] += device_total_us / 1e6
+            elif device_total_us > 0:
+                # Kineto emits one GPU annotation per stream touched by a
+                # record_function.  A single logical call can therefore appear
+                # twice when compute waits on a ZeRO communication stream.
+                stage["gpu_annotation_calls"] += count
+                stage["gpu_annotation_total_s"] += device_total_us / 1e6
+                stage["gpu_annotation_self_s"] += self_device_us / 1e6
+
+        for stage in stage_times.values():
+            stage["calls"] = stage["cpu_calls"] or stage["gpu_annotation_calls"]
+            # Preserve the old field names for existing summary consumers,
+            # while making their stream-span meaning explicit above.
+            stage["device_total_s"] = (
+                stage["gpu_annotation_total_s"]
+                or stage["cpu_child_device_total_s"]
+            )
+            stage["self_device_s"] = (
+                stage["gpu_annotation_self_s"]
+                or stage["cpu_child_device_total_s"]
+            )
         summary = {
             "global_rank": self.global_rank,
             "profile_start_step": self.profile_start_step,
