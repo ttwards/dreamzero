@@ -343,10 +343,12 @@ class TargetedCompileCallback(TrainerCallback):
     generated block graphs can be reused by all structurally identical blocks.
     ``wan`` retains the whole-Wan target for diagnostics and comparison.
 
-    The ``frozen`` scopes intentionally target only T5 and CLIP: the VAE keeps a
-    stateful causal cache whose shape changes between the conditioning and
-    training calls, so it is exposed as a separate opt-in scope.  The launcher
-    uses ``all`` to request the original whole-model Accelerate path explicitly.
+    The ``frozen`` scopes intentionally target only T5 and CLIP.  ``clip`` and
+    ``vae_clip`` are narrower opt-in scopes for the frozen image path.  The VAE
+    is safe to compile together with CLIP after target and condition videos are
+    encoded in one shape-stable batch, while each leaf callable still gets its
+    own Inductor graph.  The launcher uses ``all`` to request the original
+    whole-model Accelerate path explicitly.
     """
 
     def __init__(self, trainer, scope: str):
@@ -535,19 +537,30 @@ class TargetedCompileCallback(TrainerCallback):
                     "Targeted regional compile could not find action_head.model.blocks"
                 )
         if self.scope in {"frozen", "wan_frozen", "wan_blocks_frozen"}:
-            targets.extend(
-                [
-                    (action_head.text_encoder, "forward", "frozen T5"),
-                    (action_head.image_encoder.model.visual, "forward", "frozen CLIP visual"),
-                ]
+            targets.append(
+                (action_head.text_encoder, "forward", "frozen T5")
             )
-        if self.scope == "vae":
+        if self.scope in {
+            "frozen",
+            "wan_frozen",
+            "wan_blocks_frozen",
+            "clip",
+            "vae_clip",
+        }:
+            targets.append(
+                (
+                    action_head.image_encoder.model.visual,
+                    "forward",
+                    "frozen CLIP visual",
+                )
+            )
+        if self.scope in {"vae", "vae_clip"}:
             targets.append((action_head.vae.model, "encode", "frozen VAE encode"))
         if not targets and not regional_blocks:
             raise ValueError(
                 f"Unsupported targeted compile scope={self.scope!r}; "
                 "use wan_blocks, wan_blocks_frozen, wan, frozen, "
-                "wan_frozen, vae, or all"
+                "wan_frozen, clip, vae, vae_clip, or all"
             )
 
         rank = int(os.environ.get("RANK", "0"))
