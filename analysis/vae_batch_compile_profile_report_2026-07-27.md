@@ -246,17 +246,23 @@ Trace 明确显示 40 blocks 被 recompute，关闭 checkpointing 理论上能�
 
 ### 6.6 Max autotune
 
-额外测试了 `max-autotune-no-cudagraphs`，避免 CUDA Graph 与 ZeRO buffer 的组合风险。结果在 0/6 step 失败：
+额外测试了 `max-autotune-no-cudagraphs`，避免 CUDA Graph 与 ZeRO buffer 的组合风险。第一次 0/6 step 测试把 cache 放在 `/tmp`：约 6 分钟后产生 328 个 candidate benchmark 事件、3.3 GiB/88,375 个文件，最终因 20G overlay 写满而触发 `OSError: [Errno 28] No space left on device`。专用 cache 已清理，根盘从 100% 恢复到 84%。
 
-- 约 6 分钟实际 autotune；
-- 328 个 candidate benchmark 事件；
-- cache 峰值 3.3 GiB、88,375 个文件；
-- `/tmp` 所在 20G overlay 写满，触发 `OSError: [Errno 28] No space left on device`；
-- 未进入 hot step，因此没有性能收益证据。
+随后把同一模式的专用 `TORCHINDUCTOR_CACHE_DIR` 改到 1.3 TiB 的 `/dev/shm`，保持 8×A800、global batch 16、相同 42 个 targeted compile 目标，关闭 profiler 后完成 8/8 step：
 
-该模式冷启动和 cache/inode 成本明显，不采用。失败 run 的专用 3.3 GiB cache 已清理，根盘从 100% 恢复到 84%、可用 3.3 GiB。成功的 default-mode cache 保留。
+| 指标 | `default` | `max-autotune-no-cudagraphs` |
+|---|---:|---:|
+| steady step | 23.987866 s | 中位数约 24 s；7 hot step 均值 25.4555 s |
+| samples/(s·GPU) | 0.083375 | 中位数约 0.083333；热均值约 0.07857 |
+| runtime MFU | 42.1305% | 中位数换算约 42.11%；热均值换算约 39.70% |
+| cold first step | 约 129.94 s | 1163.48 s（19m23s） |
+| compile health | 3 graphs，0 break/recompile/guard failure | 3 graphs，0 break/recompile/guard failure |
 
-不尝试 `reduce-overhead` 或 `max-autotune`，因为 PyTorch 2.8 中这两个 mode 会启用 CUDA Graph；ZeRO 参数 hook 和动态 materialization buffer 使收益/正确性风险不对称。
+`max-autotune-no-cudagraphs` 的 hot step 序列由进度时间近似为 `[24, 24, 24, 32, 26, 24, 24]` s；其中位数相对 `default` 慢约 0.05%，属于测量噪声，包含两次抖动的均值则慢约 6.12%。它产生了 445 个 autotune benchmark 事件、7.4 GiB/203,079 个 cache 文件，`nvidia-smi` 观测峰值约 74.5 GiB/GPU。`/dev/shm` 成功解决了空间问题，但没有换来可确认的热态收益，也不存在可计算的正向 break-even step 数。
+
+因此仍不采用该模式。测试专用 RAM cache 已在终态核验后按精确路径清理，完整日志保留在服务器：`/efs-exp/agent-workspace/xuwenxi/outputs/wan_blocks_vae_clip_max_autotune_shm_f491a01_8step/train.log`。成功的 default-mode cache 保留。
+
+不再尝试 `reduce-overhead` 或会启用 CUDA Graph 的 `max-autotune`；ZeRO 参数 hook 和动态 materialization buffer 使其收益/正确性风险不对称。上面的 `max-autotune-no-cudagraphs` 已经覆盖了不引入 CUDA Graph 时的 autotune 收益上限。
 
 ## 7. 推荐生产配置
 
