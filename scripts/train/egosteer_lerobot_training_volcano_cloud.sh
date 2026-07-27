@@ -52,13 +52,14 @@ export SAVE_STEPS="${SAVE_STEPS:-500}"
 export SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-8}"
 export SKIP_FINAL_SAVE="${SKIP_FINAL_SAVE:-false}"
 
-# Compile only repeated Wan blocks. ZeRO-3 communication hooks remain eager at
-# module boundaries, preserving the node-local hpZ partition of eight ranks.
+# Compile repeated Wan blocks plus the frozen VAE/CLIP leaf modules. ZeRO-3
+# communication hooks stay eager at Wan module boundaries, while VAE/CLIP stay
+# as per-rank BF16 replicas outside the ZeRO parameter-materialization tree.
 export TORCH_COMPILE="${TORCH_COMPILE:-true}"
-export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks}"
+export TORCH_COMPILE_SCOPE="${TORCH_COMPILE_SCOPE:-wan_blocks_vae_clip}"
 export TORCH_COMPILE_BACKEND="${TORCH_COMPILE_BACKEND:-inductor}"
 export TORCH_COMPILE_MODE="${TORCH_COMPILE_MODE:-default}"
-export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-auto}"
+export TORCH_COMPILE_DYNAMIC="${TORCH_COMPILE_DYNAMIC:-false}"
 export TORCH_COMPILE_FULLGRAPH="${TORCH_COMPILE_FULLGRAPH:-true}"
 export TORCH_COMPILE_DIAGNOSTICS="${TORCH_COMPILE_DIAGNOSTICS:-false}"
 export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-/tmp/dreamzero-inductor-cache}"
@@ -66,9 +67,10 @@ export TORCHINDUCTOR_COMPILE_THREADS="${TORCHINDUCTOR_COMPILE_THREADS:-12}"
 export TORCHINDUCTOR_FALLBACK_RANDOM="${TORCHINDUCTOR_FALLBACK_RANDOM:-true}"
 export TORCHINDUCTOR_AUTOTUNE_POINTWISE="${TORCHINDUCTOR_AUTOTUNE_POINTWISE:-false}"
 
-# Profile rank 0 exactly once after compilation and steady-state warmup.
+# Keep production training free of profiler synchronization/export overhead.
+# Set TORCH_PROFILE=true explicitly for a one-shot rank-0 diagnostic trace;
 # ProfCallback uses repeat=1 and removes itself after writing the trace.
-export TORCH_PROFILE="${TORCH_PROFILE:-true}"
+export TORCH_PROFILE="${TORCH_PROFILE:-false}"
 export PROFILE_START_STEP="${PROFILE_START_STEP:-100}"
 export PROFILE_WARMUP_STEPS="${PROFILE_WARMUP_STEPS:-1}"
 export PROFILE_ACTIVE_STEPS="${PROFILE_ACTIVE_STEPS:-2}"
@@ -99,7 +101,7 @@ echo "network interface: $RDMA_IFNAME"
 echo "data mixture root: $EGO_STEER_DATA_ROOT"
 echo "output: $OUTPUT_DIR"
 echo "global batch: $GLOBAL_BATCH_SIZE"
-echo "compile: $TORCH_COMPILE scope=$TORCH_COMPILE_SCOPE"
+echo "compile: $TORCH_COMPILE scope=$TORCH_COMPILE_SCOPE backend=$TORCH_COMPILE_BACKEND mode=$TORCH_COMPILE_MODE dynamic=$TORCH_COMPILE_DYNAMIC fullgraph=$TORCH_COMPILE_FULLGRAPH"
 echo "one-shot profiler: $TORCH_PROFILE start=$PROFILE_START_STEP warmup=$PROFILE_WARMUP_STEPS active=$PROFILE_ACTIVE_STEPS"
 
 exec bash "$SCRIPT_DIR/egosteer_lerobot_training.sh"
