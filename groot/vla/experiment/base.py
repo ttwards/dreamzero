@@ -1876,6 +1876,34 @@ class BaseTrainer(transformers.Trainer):
 
         return TimedDataLoader(train_dataset, timing_sink=self, **dataloader_params)
 
+    def get_eval_dataloader(self, eval_dataset=None) -> DataLoader:
+        """Build a rank-local loader for datasets that already shard themselves."""
+        if eval_dataset is None:
+            eval_dataset = self.eval_dataset
+
+        if not isinstance(eval_dataset, ShardedLeRobotMixtureDataset):
+            return super().get_eval_dataloader(eval_dataset)
+
+        # ShardedLeRobotMixtureDataset partitions samples across distributed ranks
+        # and dataloader workers in __iter__. Returning the raw dataloader here is
+        # intentional: Trainer's default implementation calls accelerator.prepare,
+        # whose IterableDataset dispatcher would split the rank-0 batch a second time.
+        data_collator = self._get_collator_with_removed_columns(
+            self.data_collator, description="evaluation"
+        )
+        dataloader_params = {
+            "batch_size": self.args.eval_batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+        }
+        if self.args.dataloader_num_workers > 0:
+            dataloader_params["persistent_workers"] = self.args.dataloader_persistent_workers
+            if self.args.dataloader_prefetch_factor is not None:
+                dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+
+        return DataLoader(eval_dataset, **dataloader_params)
+
 
 class BaseExperiment(ABC):
     def __init__(self, cfg: DictConfig):
