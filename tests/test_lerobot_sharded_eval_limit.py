@@ -1,8 +1,11 @@
 from types import MethodType, SimpleNamespace
 
+import numpy as np
+
 import groot.vla.data.dataset.lerobot_sharded as lerobot_sharded
 from groot.vla.data.dataset.lerobot_sharded import (
     ShardedLeRobotMixtureDataset,
+    ShardedLeRobotSubLangSingleActionChunkDatasetDROID,
     _group_trajectories_into_shards,
 )
 
@@ -73,3 +76,25 @@ def test_trajectory_shards_allow_one_episode_to_cross_multiple_cutoffs():
     assert shards == [[0], [1, 2]]
     assert lengths.tolist() == [2500, 200]
     assert all(shards)
+
+
+def test_empty_video_samples_keep_integer_index_dtype():
+    dataset = object.__new__(ShardedLeRobotSubLangSingleActionChunkDatasetDROID)
+    dataset.max_chunk_size = 4
+
+    empty_cases = (
+        (np.empty(0, dtype=np.int64), np.empty(0, dtype=object), 0),
+        (np.array([9], dtype=np.int64), np.full(10, "move", dtype=object), 10),
+        (np.array([0], dtype=np.int64), np.full(24, "move", dtype=object), 24),
+    )
+
+    for step_indices, annotations, trajectory_length in empty_cases:
+        sampled_indices = dataset._uniform_sample_from_language_ranges(
+            step_indices,
+            annotations,
+            trajectory_length,
+        )
+
+        assert sampled_indices.shape == (0,)
+        assert np.issubdtype(sampled_indices.dtype, np.integer)
+        assert np.empty((4, 1))[sampled_indices].shape == (0, 1)
